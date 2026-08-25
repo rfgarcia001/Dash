@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.env
+.env.local
+npm-debug.log
+*.zip
+tmp.json
+response.json
+temp_sheet*.xlsx
+test*.js
+test*.cjs
+fix-*.cjs

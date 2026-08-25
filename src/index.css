@@ -1,0 +1,326 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg: #0F1115;
+    --surface-1: #151922;
+    --surface-2: #1C2230;
+    --surface-3: #263041;
+    --surface-4: #334155;
+    
+    --text-primary: #FFFFFF;
+    --text-muted: #B6C1D2;
+    --text-subtle: #8290A5;
+    
+    --border-hairline: rgba(148, 163, 184, 0.16);
+    --border-strong: rgba(148, 163, 184, 0.26);
+    --border-input: rgba(148, 163, 184, 0.34);
+    
+    --brand-strategy: #00FFBB;
+    --brand-strategy-strong: #00D99F;
+    --brand-management: #66BEFF;
+    --metric-investment: #F59E0B;
+    --metric-revenue: #00E5A8;
+    --metric-efficiency: #A3E635;
+  --metric-risk: #F43F5E;
+  /* Categorical chart palette: 8 hues, fixed order, sourced from real
+     product references (Trello's classic label palette + ClickUp's brand
+     violet #7b68ee), re-stepped to sit in the OKLCH L 0.48-0.67 dark-mode
+     band and validated with the dataviz skill's validate_palette.js against
+     this exact surface (#0F1115) — worst adjacent CVD ΔE 8.7, worst
+     adjacent normal-vision ΔE 23.2, all >= 3:1 contrast. Never reassign a
+     slot's meaning, only its usage site. */
+  --chart-1: #1885c4; /* blue — Trello blue */
+  --chart-2: #bf7d23; /* orange — Trello orange, re-stepped for dark */
+  --chart-3: #7b68ee; /* violet — ClickUp brand periwinkle */
+  --chart-4: #a28b08; /* gold — Trello yellow, re-stepped for dark */
+  --chart-5: #b8538c; /* pink — Trello pink, re-stepped for dark */
+  --chart-6: #59ac44; /* green — Trello green (dark shade) */
+  --chart-7: #bd5446; /* red — Trello red, re-stepped for dark */
+  --chart-8: #028ba3; /* teal — Trello sky (dark shade) */
+
+    --action-default: var(--brand-strategy);
+    --action-hover: #45FFD0;
+    --action-pressed: var(--brand-strategy-strong);
+    --action-ink: #061814;
+    --action-subtle: rgba(0, 255, 187, 0.12);
+
+    /* Selection is visually distinct from action: green stays reserved for
+       primary CTAs and positive metrics (see impeccable critique P2). */
+    --selection: var(--brand-management);
+    --selection-subtle: rgba(102, 190, 255, 0.14);
+
+    --status-positive: var(--metric-revenue);
+    --status-negative: var(--metric-risk);
+    --status-warning: var(--metric-investment);
+
+    --canvas: #0F1115;
+    --panel: #151922;
+    --panel-elevated: #1C2230;
+    --control: #242424;
+    --line: rgba(148, 163, 184, 0.16);
+  }
+
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(62, 232, 181, 0.11), transparent 30rem),
+      radial-gradient(circle at 85% 12%, rgba(102, 190, 255, 0.12), transparent 26rem),
+      var(--canvas);
+    color: #FFFFFF;
+    font-family: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    letter-spacing: 0;
+    font-optical-sizing: auto;
+    font-variant-numeric: tabular-nums;
+    min-width: 320px;
+  }
+
+  code, kbd, samp, pre, .font-mono {
+    font-family: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (max-width: 639px) {
+  .dashboard-shell {
+    padding-bottom: max(5rem, env(safe-area-inset-bottom));
+  }
+
+  .table-scroll-region {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+}
+
+/* IA do Jeito Certo / Allevo tokens from the supplied design system. */
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --type-caption: 0.6875rem;
+  --type-meta: 0.75rem;
+  --type-label: 0.8125rem;
+  --type-body: 1rem;
+  --type-section: 1.125rem;
+  --type-display: clamp(1.75rem, 2.25vw, 2.625rem);
+
+  --radius-control: 0.5rem;
+  --radius-panel: 0.75rem;
+  --radius-chip: 999px;
+
+  --elevation-1: 0 16px 42px rgba(0, 0, 0, 0.22);
+  --elevation-2: 0 18px 52px rgba(0, 0, 0, 0.22);
+  --elevation-3: 0 22px 70px rgba(0, 0, 0, 0.28);
+
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --focus-ring: var(--brand-management);
+  --allevo-surface-dark: #1A1A1A;
+  --allevo-surface-dark-elevated: #252525;
+  --allevo-text-on-action: #1A1A1A;
+  --allevo-action-start: var(--brand-strategy-strong);
+  --allevo-action-end: var(--brand-strategy);
+  --table-heading: var(--brand-strategy);
+  --table-hover: rgba(255, 255, 255, 0.045);
+  --table-divider: var(--border-hairline);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring) !important;
+  outline-offset: 3px !important;
+}
+
+button,
+input,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(0, 255, 187, 0.3);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin,
+  .animate-pulse {
+    animation: none !important;
+  }
+
+  [class*="transition-"] {
+    transition-duration: 100ms !important;
+  }
+}
+
+.table-panel {
+  background: var(--panel);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.22);
+}
+
+.table-heading {
+  background: var(--table-hover);
+  border-bottom: 1px solid var(--table-divider);
+  color: var(--table-heading);
+}
+
+.table-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  width: 100%;
+  padding: 0.75rem 0.875rem;
+  color: inherit;
+  text-align: inherit;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.table-sort-button:hover {
+  background: var(--table-hover);
+  color: var(--text-primary);
+}
+
+/* Custom scrollbars matching the dark surface palette */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0F1115;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+input[type="date"] {
+  color-scheme: dark;
+  position: relative;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  background: transparent;
+  bottom: 0;
+  color: transparent;
+  cursor: pointer;
+  height: 100%;
+  left: 0;
+  opacity: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 100%;
+}
+
+.dashboard-shell {
+  background:
+    linear-gradient(180deg, rgba(15, 17, 21, 0.65) 0%, #0F1115 34rem),
+    radial-gradient(circle at 12% 10%, rgba(62, 232, 181, 0.08), transparent 24rem);
+}
+
+.executive-panel {
+  background: linear-gradient(135deg, rgba(21, 25, 34, 0.96), rgba(17, 22, 32, 0.94));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+}
+
+.metric-card {
+  background: linear-gradient(180deg, rgba(24, 29, 39, 0.98), rgba(18, 22, 30, 0.98));
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.22);
+}
+
+.dashboard-shell .table-scroll-region {
+  scrollbar-color: var(--surface-4) transparent;
+  scrollbar-width: thin;
+}
+
+@media (pointer: coarse) {
+  .dashboard-shell .metric-card:hover {
+    transform: none;
+  }
+}
+
+.metric-card:hover {
+  border-color: rgba(62, 232, 181, 0.32);
+  transform: translateY(-1px);
+}
+
+.metric-card:focus-visible {
+  border-color: var(--brand-management);
+}
+
+.dashboard-shell button:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.65);
+}
+
+/* Typography roles: readable operational labels, strong values, stable numeric scanning. */
+.dashboard-shell .font-mono {
+  letter-spacing: 0.015em;
+}
+
+.metric-card [data-metric-title] {
+  font-size: var(--type-label);
+  font-weight: 650;
+  letter-spacing: 0.045em;
+  line-height: 1.25;
+}
+
+.metric-card [data-metric-value] {
+  font-size: clamp(2rem, 2.25vw, 2.625rem);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+.metric-card [data-metric-subtext] {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.metric-card [data-metric-comparison] {
+  font-size: 0.8125rem;
+  line-height: 1.25;
+}
+
+.metric-card--compact {
+  min-height: 0;
+  padding: 1rem;
+  justify-content: flex-start;
+  gap: 1.25rem;
+}
+
+.metric-card--compact [data-metric-title] {
+  font-size: var(--type-label);
+}
+
+.metric-card--compact [data-metric-value] {
+  font-size: clamp(1.7rem, 2vw, 2.15rem);
+}
+
+.metric-card--compact [data-metric-subtext] {
+  font-size: 0.875rem;
+}
+
+.metric-card--compact [data-metric-comparison] {
+  margin-top: auto;
+}
+
+.dashboard-shell .badge-primary-green {
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+}

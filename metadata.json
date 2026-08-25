@@ -1,0 +1,8 @@
+{
+  "name": "AllevoTech - Dashboard de Tráfego",
+  "description": "Dashboard para análise de campanhas de tráfego pago integrando dados do Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
