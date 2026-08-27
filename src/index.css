@@ -395,7 +395,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .metric-card [data-metric-value] {
-  font-size: clamp(2rem, 2.25vw, 2.625rem);
+  /* Same reasoning as the compact-card clamp below: this max was sized
+     against small test values. Real currency totals (6+ digits, e.g.
+     "R$ 135.162,04") don't fit a 4-up hero card at that size and wrap
+     mid-number. Lower ceiling keeps "hero" scale without forcing a break. */
+  font-size: clamp(1.5rem, 1.9vw, 2.125rem);
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.05;
