@@ -77,7 +77,12 @@ export function MetricCard({
 
       <div className="mb-1">
         <h3 data-metric-value className={cn('tabular-nums mb-1 transition-colors break-words', valueColor || 'text-[var(--text-primary)]')}>{value}</h3>
-        {subtext && <p data-metric-subtext className="text-[var(--text-muted)] font-normal">{subtext}</p>}
+        {/* Always rendered (invisible when empty) so cards without a subtext
+            reserve the same line height — otherwise their breakdown dots
+            sit a line higher than a sibling card that has one, misaligning
+            the whole row (e.g. only Investimento Total keeps "Valor com
+            impostos" while the other 3 hero cards have none). */}
+        <p data-metric-subtext className={cn('text-[var(--text-muted)] font-normal', !subtext && 'invisible')}>{subtext || ' '}</p>
         {breakdown && breakdown.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
             {breakdown.map((item) => (
