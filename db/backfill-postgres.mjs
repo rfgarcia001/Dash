@@ -8,6 +8,8 @@
 //
 // Usage:
 //   DASHBOARD_URL=http://localhost:3000 DATABASE_URL=postgres://... node db/backfill-postgres.mjs [funnelId ...]
+// Against an env with Basic Auth on (prod/VPS), also set:
+//   DASHBOARD_BASIC_AUTH=usuario:senha
 //
 // With no funnel ids given, backfills every funnel currently in the
 // dashboard's /api/funnels list. Safe to re-run: each funnel's existing
@@ -18,6 +20,13 @@ import pg from "pg";
 
 const DASHBOARD_URL = (process.env.DASHBOARD_URL || "http://localhost:3000").replace(/\/$/, "");
 const DATABASE_URL = process.env.DATABASE_URL;
+// Prod tem Basic Auth ligado (DASHBOARD_PASSWORD) — sem isso o fetch abaixo
+// toma 401. Formato: DASHBOARD_BASIC_AUTH="usuario:senha".
+const [BASIC_AUTH_USER, ...basicAuthPasswordParts] = (process.env.DASHBOARD_BASIC_AUTH || "").split(":");
+const BASIC_AUTH_PASSWORD = basicAuthPasswordParts.join(":");
+const authHeaders = BASIC_AUTH_USER
+  ? { Authorization: `Basic ${Buffer.from(`${BASIC_AUTH_USER}:${BASIC_AUTH_PASSWORD}`).toString("base64")}` }
+  : {};
 
 if (!DATABASE_URL) {
   console.error("DATABASE_URL não setada. Exemplo: postgres://allevo:allevo_dev_only@localhost:5432/allevo");
@@ -61,7 +70,7 @@ function toPurchasedAt(row) {
 }
 
 async function backfillFunnel(pool, funnelId) {
-  const res = await fetch(`${DASHBOARD_URL}/api/spreadsheet?project=${encodeURIComponent(funnelId)}`);
+  const res = await fetch(`${DASHBOARD_URL}/api/spreadsheet?project=${encodeURIComponent(funnelId)}`, { headers: authHeaders });
   if (!res.ok) {
     console.error(`  ✗ ${funnelId}: HTTP ${res.status}`);
     return;
@@ -133,7 +142,7 @@ async function main() {
   const pool = new pg.Pool({ connectionString: DATABASE_URL });
   let funnelIds = process.argv.slice(2);
   if (funnelIds.length === 0) {
-    const res = await fetch(`${DASHBOARD_URL}/api/funnels`);
+    const res = await fetch(`${DASHBOARD_URL}/api/funnels`, { headers: authHeaders });
     const { funnels } = await res.json();
     funnelIds = funnels.map((f) => f.id);
   }
