@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useTransition } from 'react';
 import { 
   Calendar, RotateCcw, LayoutDashboard, Layers, Disc, MousePointer2, Package, 
   DollarSign, TrendingUp, TrendingDown, Zap, Ticket, ShoppingCart, Target, Megaphone, ChevronDown, PieChart, Eye, MousePointerClick, Monitor, Plus, Equal, Image, ExternalLink, Search, Bell, AlertTriangle, Check, X, Pencil, Trash2,
   ShieldCheck, LogOut, UserCheck, Shield, Maximize2, PanelLeftClose, PanelLeftOpen, History, Sun, Moon
 } from 'lucide-react';
-import { createDashboardFunnel, DashboardFunnel, deleteDashboardFunnel, fetchDashboardFunnels, fetchSpreadsheetData, updateDashboardFunnel } from '../services/api';
+import { createDashboardFunnel, DashboardFunnel, deleteDashboardFunnel, fetchDashboardFunnels, fetchSpreadsheetData, FunnelImportResult, updateDashboardFunnel } from '../services/api';
 import { cn } from '../lib/utils';
 import { filterByDate, buildDateFilter, buildPreviousDateFilter, getPreviousPeriodLabel, calculateComparison, parseValue, formatCurrency, formatPercent, formatNumber, parseUtcToUtcMinus3 } from '../lib/metrics';
 import { useSortState } from '../lib/hooks';
@@ -136,6 +136,14 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
   };
   const [dateRange, setDateRange] = useState('7D');
   const [includeProductRevenue, setIncludeProductRevenue] = useState(false);
+  // includeProductRevenue is a dependency of the big metricsData useMemo
+  // (it's threaded through per-day loops, not just a final total), so
+  // toggling it re-runs that full aggregation over every selected funnel's
+  // entire history — with "Período Total" across 4 funis that's 8000+ rows
+  // and was reading as "frozen/bugged" rather than "recalculating". A
+  // transition keeps the checkbox and rest of the UI responsive while React
+  // deprioritizes the resulting re-render instead of blocking on it.
+  const [isRecalculatingRevenue, startRevenueTransition] = useTransition();
   const [comparePrevious, setComparePrevious] = useState(true);
   const [showMovingAverage, setShowMovingAverage] = useState(false);
   const [customDates, setCustomDates] = useState({ start: '', end: '' });
@@ -158,8 +166,14 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
   const [isAddFunnelModalOpen, setIsAddFunnelModalOpen] = useState(false);
   const [newFunnelName, setNewFunnelName] = useState('');
   const [newFunnelUrl, setNewFunnelUrl] = useState('');
+  const [newFunnelSourceType, setNewFunnelSourceType] = useState('standard');
   const [newFunnelError, setNewFunnelError] = useState<string | null>(null);
   const [isCreatingFunnel, setIsCreatingFunnel] = useState(false);
+  // Set right after a successful create, so the modal can show the funnel's
+  // id before closing — that id is what an external pipeline (e.g. n8n)
+  // needs as funnel_id when writing rows straight into Postgres.
+  const [createdFunnel, setCreatedFunnel] = useState<DashboardFunnel | null>(null);
+  const [createdFunnelImport, setCreatedFunnelImport] = useState<{ result?: FunnelImportResult; error?: string } | null>(null);
   const [editingFunnel, setEditingFunnel] = useState<DashboardFunnel | null>(null);
   const [funnelPendingDelete, setFunnelPendingDelete] = useState<DashboardFunnel | null>(null);
   const [isDeletingFunnel, setIsDeletingFunnel] = useState(false);
@@ -273,7 +287,8 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
   const openFunnelEditor = (funnel: DashboardFunnel) => {
     setEditingFunnel(funnel);
     setNewFunnelName(funnel.name);
-    setNewFunnelUrl(`https://docs.google.com/spreadsheets/d/${funnel.sheetId}/edit`);
+    setNewFunnelUrl(funnel.sheetId ? `https://docs.google.com/spreadsheets/d/${funnel.sheetId}/edit` : '');
+    setNewFunnelSourceType(funnel.sourceType || 'standard');
     setNewFunnelError(null);
     setIsFunnelMenuOpen(false);
     setIsAddFunnelModalOpen(true);
@@ -284,22 +299,33 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
     setEditingFunnel(null);
     setNewFunnelName('');
     setNewFunnelUrl('');
+    setNewFunnelSourceType('standard');
     setNewFunnelError(null);
+    setCreatedFunnel(null);
+    setCreatedFunnelImport(null);
   };
   const handleSaveFunnel = async (event: React.FormEvent) => {
     event.preventDefault();
     setNewFunnelError(null);
     setIsCreatingFunnel(true);
     try {
-      const funnel = editingFunnel
-        ? await updateDashboardFunnel(editingFunnel.id, newFunnelName, newFunnelUrl)
-        : await createDashboardFunnel(newFunnelName, newFunnelUrl);
+      const { funnel, import: importResult, importError } = editingFunnel
+        ? await updateDashboardFunnel(editingFunnel.id, newFunnelName, newFunnelUrl, newFunnelSourceType)
+        : await createDashboardFunnel(newFunnelName, newFunnelUrl, newFunnelSourceType);
       setFunnels((current) => editingFunnel
         ? current.map((item) => item.id === funnel.id ? funnel : item)
         : [...current, funnel]);
       setSelectedFunnelIds((current) => current.includes(funnel.id) ? current : [...current, funnel.id]);
-      closeFunnelEditor(true);
       setIsFunnelMenuOpen(false);
+      if (editingFunnel && !importResult && !importError) {
+        closeFunnelEditor(true);
+      } else {
+        // Show the new funnel's id before closing — it's what an external
+        // pipeline writing straight to Postgres needs as funnel_id. Also
+        // surface the one-time sheet import outcome when a link was given.
+        setCreatedFunnel(funnel);
+        if (importResult || importError) setCreatedFunnelImport({ result: importResult, error: importError });
+      }
     } catch (error: any) {
       setNewFunnelError(error.message || 'Não foi possível salvar o funil.');
     } finally {
@@ -1872,10 +1898,14 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
                       <input
                         type="checkbox"
                         checked={includeProductRevenue}
-                        onChange={(event) => setIncludeProductRevenue(event.target.checked)}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          startRevenueTransition(() => setIncludeProductRevenue(checked));
+                        }}
                         className="h-4 w-4 accent-[var(--accent-purple)]"
                       />
                       <span className="font-medium">Incluir faturamento dos produtos no total global</span>
+                      {isRecalculatingRevenue && <span className="text-xs text-[var(--text-subtle)]">Recalculando...</span>}
                     </label>
                   )}
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -2155,32 +2185,88 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
       <Dialog open={isAddFunnelModalOpen} onClose={() => closeFunnelEditor()} labelledBy="add-funnel-title" as="form" onSubmit={handleSaveFunnel} className="max-w-lg">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 id="add-funnel-title" className="text-lg font-bold text-[var(--text-primary)]">{editingFunnel ? 'Editar funil' : 'Novo funil'}</h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">Informe o nome e a planilha que será a fonte de dados.</p>
+            <h2 id="add-funnel-title" className="text-lg font-bold text-[var(--text-primary)]">
+              {createdFunnel ? (editingFunnel ? 'Funil atualizado' : 'Funil criado') : editingFunnel ? 'Editar funil' : 'Novo funil'}
+            </h2>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              {createdFunnel
+                ? 'Use o ID abaixo pra apontar sua automação (ex.: n8n) pra esse funil no banco.'
+                : 'A planilha é opcional — sem ela, os dados vêm direto do banco (Postgres). Se colar um link, importamos os dados dela pro banco uma única vez, agora; depois disso o dashboard nunca mais lê essa planilha.'}
+            </p>
           </div>
           <Button variant="icon" size="icon" className="w-9 h-9 min-h-9 min-w-9" onClick={() => closeFunnelEditor()} aria-label="Fechar cadastro de funil">
             <X size={18} />
           </Button>
         </div>
+        {createdFunnel ? (
+          <div className="mt-5 space-y-4">
+            <div>
+              <span className="text-sm font-semibold text-[var(--text-primary)]">funnel_id</span>
+              <div className="mt-2 flex items-center gap-2">
+                <code className="min-h-11 flex-1 flex items-center rounded-[var(--radius-control)] border border-[var(--border-hairline)] bg-black/20 px-3 text-sm text-[var(--brand-strategy-ink)] font-mono select-all overflow-x-auto">
+                  {createdFunnel.id}
+                </code>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="min-h-11 shrink-0"
+                  onClick={() => { navigator.clipboard?.writeText(createdFunnel.id).catch(() => {}); }}
+                >
+                  Copiar
+                </Button>
+              </div>
+            </div>
+            <div className="rounded-[var(--radius-control)] border border-[var(--brand-strategy-ink)]/20 bg-[var(--brand-strategy)]/[0.06] p-3 text-sm leading-relaxed text-[var(--text-muted)]">
+              Insira linhas em <code className="font-mono">meta_ads</code>, <code className="font-mono">buyers</code> e <code className="font-mono">creatives</code> com <code className="font-mono">funnel_id = '{createdFunnel.id}'</code> pra esse funil aparecer no dashboard.
+            </div>
+            {createdFunnelImport?.result && (
+              <div className="rounded-[var(--radius-control)] border border-[var(--status-positive)]/25 bg-[var(--status-positive)]/[0.08] p-3 text-sm leading-relaxed text-[var(--text-muted)]">
+                <strong className="text-[var(--status-positive)]">Importação da planilha concluída:</strong> {createdFunnelImport.result.metaRows} linhas de Meta Ads, {createdFunnelImport.result.buyerRows} compradores, {createdFunnelImport.result.creativeRows} criativos. A planilha não será lida de novo — qualquer venda nova precisa entrar direto no banco.
+              </div>
+            )}
+            {createdFunnelImport?.error && (
+              <div role="alert" className="rounded-[var(--radius-control)] border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+                <strong>Funil salvo, mas a importação da planilha falhou:</strong> {createdFunnelImport.error}
+              </div>
+            )}
+          </div>
+        ) : (
         <div className="mt-5 space-y-4">
           <label className="block text-sm font-semibold text-[var(--text-primary)]">
             Nome do funil
             <input value={newFunnelName} onChange={(event) => setNewFunnelName(event.target.value)} required minLength={3} maxLength={80} placeholder="Ex.: Livro Nova Oferta" className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--border-hairline)] bg-black/20 px-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-strategy-ink)]" />
           </label>
           <label className="block text-sm font-semibold text-[var(--text-primary)]">
-            Link da planilha Google Sheets
-            <input type="url" value={newFunnelUrl} onChange={(event) => setNewFunnelUrl(event.target.value)} required placeholder="https://docs.google.com/spreadsheets/d/..." className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--border-hairline)] bg-black/20 px-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-strategy-ink)]" />
+            Tipo do funil
+            <select value={newFunnelSourceType} onChange={(event) => setNewFunnelSourceType(event.target.value)} className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--border-hairline)] bg-black/20 px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand-strategy-ink)]">
+              <option value="standard">Padrão (venda de ingresso, com Order Bump)</option>
+              <option value="paid-launch">Lançamento pago/perpétuo (sem Order Bump)</option>
+            </select>
           </label>
-          <div className="rounded-[var(--radius-control)] border border-[var(--brand-strategy-ink)]/20 bg-[var(--brand-strategy)]/[0.06] p-3 text-sm leading-relaxed text-[var(--text-muted)]">
-            <strong className="text-[var(--brand-strategy-ink)]">Antes de adicionar:</strong> na planilha, abra <strong>Compartilhar</strong> e, se possível, restrinja o acesso a <strong>pessoas do domínio da empresa</strong> com permissão <strong>Leitor</strong>. Use <strong>Qualquer pessoa com o link</strong> apenas se essa opção não existir na sua conta Google.
-          </div>
+          <label className="block text-sm font-semibold text-[var(--text-primary)]">
+            Link da planilha Google Sheets <span className="font-normal text-[var(--text-subtle)]">(opcional)</span>
+            <input type="url" value={newFunnelUrl} onChange={(event) => setNewFunnelUrl(event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." className="mt-2 min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--border-hairline)] bg-black/20 px-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-subtle)] focus:border-[var(--brand-strategy-ink)]" />
+          </label>
+          {newFunnelUrl && (
+            <div className="rounded-[var(--radius-control)] border border-[var(--brand-strategy-ink)]/20 bg-[var(--brand-strategy)]/[0.06] p-3 text-sm leading-relaxed text-[var(--text-muted)]">
+              <strong className="text-[var(--brand-strategy-ink)]">Antes de adicionar:</strong> na planilha, abra <strong>Compartilhar</strong> e, se possível, restrinja o acesso a <strong>pessoas do domínio da empresa</strong> com permissão <strong>Leitor</strong>. Use <strong>Qualquer pessoa com o link</strong> apenas se essa opção não existir na sua conta Google.
+            </div>
+          )}
           {newFunnelError && <p role="alert" className="rounded-[var(--radius-control)] border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{newFunnelError}</p>}
         </div>
+        )}
         <div className="mt-6 flex justify-end gap-3">
-          <Button variant="secondary" size="sm" className="min-h-10" disabled={isCreatingFunnel} onClick={() => closeFunnelEditor()}>Cancelar</Button>
-          <Button variant="primary" size="sm" className="min-h-10" type="submit" disabled={isCreatingFunnel}>
-            {isCreatingFunnel ? 'Validando...' : editingFunnel ? 'Validar e salvar' : 'Validar e adicionar'}
-          </Button>
+          {createdFunnel ? (
+            <Button type="button" variant="primary" size="sm" className="min-h-10" onClick={() => closeFunnelEditor(true)}>Concluir</Button>
+          ) : (
+            <>
+              <Button variant="secondary" size="sm" className="min-h-10" disabled={isCreatingFunnel} onClick={() => closeFunnelEditor()}>Cancelar</Button>
+              <Button variant="primary" size="sm" className="min-h-10" type="submit" disabled={isCreatingFunnel}>
+                {isCreatingFunnel ? 'Salvando...' : editingFunnel ? 'Salvar' : 'Adicionar'}
+              </Button>
+            </>
+          )}
         </div>
       </Dialog>
       <Dialog open={Boolean(funnelPendingDelete)} onClose={() => { if (!isDeletingFunnel) setFunnelPendingDelete(null); }} labelledBy="delete-funnel-title">

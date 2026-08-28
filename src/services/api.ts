@@ -14,6 +14,23 @@ export interface DashboardFunnel {
   builtIn?: boolean;
 }
 
+export interface FunnelImportResult {
+  metaRows: number;
+  buyerRows: number;
+  fgpRows: number;
+  creativeRows: number;
+}
+
+export interface FunnelMutationResult {
+  funnel: DashboardFunnel;
+  // Present only when a spreadsheet link was given while Postgres is the
+  // active backend — a one-time import ran at save time. See
+  // importFunnelFromSheet in server.ts: after this, the sheet is never read
+  // again for this funnel.
+  import?: FunnelImportResult;
+  importError?: string;
+}
+
 const wait = (delay: number) => new Promise((resolve) => setTimeout(resolve, delay));
 
 export async function fetchSpreadsheetData(project: string = '1', sheetId?: string, retries = 2, delay = 1500): Promise<any> {
@@ -81,11 +98,11 @@ export async function fetchDashboardFunnels(): Promise<DashboardFunnel[]> {
   return payload.funnels;
 }
 
-export async function createDashboardFunnel(name: string, spreadsheetUrl: string): Promise<DashboardFunnel> {
+export async function createDashboardFunnel(name: string, spreadsheetUrl: string, sourceType?: string): Promise<FunnelMutationResult> {
   const response = await fetch('/api/funnels', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, spreadsheetUrl })
+    body: JSON.stringify({ name, spreadsheetUrl, sourceType })
   });
   const isJson = response.headers.get('content-type')?.includes('application/json');
   const payload = isJson ? await response.json().catch(() => ({})) : {};
@@ -98,23 +115,23 @@ export async function createDashboardFunnel(name: string, spreadsheetUrl: string
     }
     throw new Error(payload.error || `Não foi possível adicionar o funil (HTTP ${response.status}).`);
   }
-  return payload.funnel;
+  return { funnel: payload.funnel, import: payload.import, importError: payload.importError };
 }
 
-async function parseFunnelMutation(response: Response, fallbackMessage: string): Promise<DashboardFunnel> {
+async function parseFunnelMutation(response: Response, fallbackMessage: string): Promise<FunnelMutationResult> {
   const isJson = response.headers.get('content-type')?.includes('application/json');
   const payload = isJson ? await response.json().catch(() => ({})) : {};
   if (!response.ok || !payload.funnel) {
     throw new Error(payload.error || `${fallbackMessage} (HTTP ${response.status}).`);
   }
-  return payload.funnel;
+  return { funnel: payload.funnel, import: payload.import, importError: payload.importError };
 }
 
-export async function updateDashboardFunnel(id: string, name: string, spreadsheetUrl: string): Promise<DashboardFunnel> {
+export async function updateDashboardFunnel(id: string, name: string, spreadsheetUrl: string, sourceType?: string): Promise<FunnelMutationResult> {
   const response = await fetch(`/api/funnels/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, spreadsheetUrl })
+    body: JSON.stringify({ name, spreadsheetUrl, sourceType })
   });
   return parseFunnelMutation(response, 'Não foi possível atualizar o funil');
 }

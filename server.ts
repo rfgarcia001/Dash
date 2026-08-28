@@ -175,6 +175,556 @@ async function loadFunnels(): Promise<FunnelConfig[]> {
   return funnels;
 }
 
+// Dual data source for /api/spreadsheet, same pattern as the funnel-config
+// SSM/file split above: with DATABASE_URL set, ad/sale/creative data comes
+// from Postgres (populated by the user's own external sync — this app only
+// SELECTs) instead of parsing the Google Sheets XLSX export. Unset by
+// default, so every environment that hasn't opted in keeps reading Sheets
+// exactly as before. See db/schema.sql for the table definitions.
+const DATABASE_URL = (process.env.DATABASE_URL || "").trim();
+
+let pgPoolPromise: Promise<any> | null = null;
+
+async function pgPool() {
+  if (!pgPoolPromise) {
+    pgPoolPromise = import("pg").then((mod) => new mod.Pool({ connectionString: DATABASE_URL }));
+  }
+  return pgPoolPromise;
+}
+
+type DbMetaRow = {
+  "Data": string; "Nome da Campanha": string; "Nome do Conjunto": string; "Nome do Anúncio": string;
+  "Gasto": number; "Impressões": number; "Cliques no Link": number;
+  "Visualizações da Página de Destino": number; "Iniciate Checkout": number;
+  "Thumb_Criativo": string; "Funil": string;
+};
+
+type DbBuyerRow = {
+  "Data": string; "Data_Original": string; "Data_Hora_Formatada": string; "timestamp": number;
+  "E-mail": string; "Valor": number;
+  "utm_campaign": string; "utm_source": string; "utm_medium": string; "utm_term": string; "utm_content": string;
+  "Produto": string; "Produto Principal": string; "Order Bump": string; "Funil": string;
+};
+
+type DbCreativeRow = { "Criativos": string; "Link": string; "Thumb_Criativo": string };
+
+function toIsoDate(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+// purchased_at comes back from node-postgres as a real Date (UTC instant) —
+// no ambiguous string parsing needed here, unlike the Sheets path. Shift by
+// -3h same as parseUtcToUtcMinus3 does for the Sheets-sourced rows, so both
+// backends agree on what "local day" a purchase falls into.
+function formatPurchaseDate(purchasedAt: Date): { dateStr: string; formattedDisplay: string; timestamp: number } {
+  const shifted = new Date(purchasedAt.getTime() - 3 * 60 * 60 * 1000);
+  const dateStr = toIsoDate(shifted);
+  const hh = String(shifted.getUTCHours()).padStart(2, "0");
+  const mm = String(shifted.getUTCMinutes()).padStart(2, "0");
+  const [y, m, d] = dateStr.split("-");
+  return { dateStr, formattedDisplay: `${d}/${m}/${y} ${hh}:${mm}`, timestamp: shifted.getTime() };
+}
+
+async function fetchMetaFromDb(funnelId: string, funnelName: string): Promise<DbMetaRow[]> {
+  const pool = await pgPool();
+  const { rows } = await pool.query(
+    `SELECT ad_date, campaign_name, adset_name, ad_name, spend, impressions, link_clicks,
+            landing_page_views, initiate_checkout, creative_thumb_url
+     FROM meta_ads WHERE funnel_id = $1 ORDER BY ad_date`,
+    [funnelId]
+  );
+  return rows.map((row: any) => ({
+    "Data": toIsoDate(new Date(row.ad_date)),
+    "Nome da Campanha": row.campaign_name || "",
+    "Nome do Conjunto": row.adset_name || "",
+    "Nome do Anúncio": row.ad_name || "",
+    "Gasto": Number(row.spend) || 0,
+    "Impressões": Number(row.impressions) || 0,
+    "Cliques no Link": Number(row.link_clicks) || 0,
+    "Visualizações da Página de Destino": Number(row.landing_page_views) || 0,
+    "Iniciate Checkout": Number(row.initiate_checkout) || 0,
+    "Thumb_Criativo": row.creative_thumb_url || "",
+    "Funil": funnelName
+  }));
+}
+
+async function fetchBuyersFromDb(funnelId: string, funnelName: string, bucket: "standard" | "fgp"): Promise<DbBuyerRow[]> {
+  const pool = await pgPool();
+  const { rows } = await pool.query(
+    `SELECT purchased_at, email, amount, utm_campaign, utm_source, utm_medium, utm_term, utm_content,
+            product, order_bump
+     FROM buyers WHERE funnel_id = $1 AND bucket = $2 ORDER BY purchased_at`,
+    [funnelId, bucket]
+  );
+  return rows.map((row: any) => {
+    const parsedDate = formatPurchaseDate(new Date(row.purchased_at));
+    return {
+      "Data": parsedDate.dateStr,
+      "Data_Original": new Date(row.purchased_at).toISOString(),
+      "Data_Hora_Formatada": parsedDate.formattedDisplay,
+      "timestamp": parsedDate.timestamp,
+      "E-mail": row.email || "",
+      "Valor": Number(row.amount) || 0,
+      "utm_campaign": row.utm_campaign || "",
+      "utm_source": row.utm_source || "",
+      "utm_medium": row.utm_medium || "",
+      "utm_term": row.utm_term || "",
+      "utm_content": row.utm_content || "",
+      "Produto": row.product || "",
+      "Produto Principal": row.product || "",
+      "Order Bump": row.order_bump || "",
+      "Funil": funnelName
+    };
+  });
+}
+
+async function fetchCreativesFromDb(funnelId: string): Promise<DbCreativeRow[]> {
+  const pool = await pgPool();
+  const { rows } = await pool.query(
+    `SELECT creative_name, link, thumb_url FROM creatives WHERE funnel_id = $1 ORDER BY id`,
+    [funnelId]
+  );
+  return rows.map((row: any) => ({
+    "Criativos": row.creative_name || "",
+    "Link": row.link || "",
+    "Thumb_Criativo": row.thumb_url || ""
+  }));
+}
+
+async function fetchFunnelDataFromDb(funnel: FunnelConfig): Promise<{
+  metaItems: DbMetaRow[]; compradoresItems: DbBuyerRow[]; fgpItems: DbBuyerRow[]; criativosItems: DbCreativeRow[];
+}> {
+  const [metaItems, compradoresItems, fgpItems, criativosItems] = await Promise.all([
+    fetchMetaFromDb(funnel.id, funnel.name),
+    fetchBuyersFromDb(funnel.id, funnel.name, "standard"),
+    fetchBuyersFromDb(funnel.id, funnel.name, "fgp"),
+    fetchCreativesFromDb(funnel.id)
+  ]);
+  return { metaItems, compradoresItems, fgpItems, criativosItems };
+}
+
+// Grava dados vindos de uma automação externa (N8N) direto no Postgres. Ver
+// docs/ingest-api.md pro contrato completo de cada endpoint.
+function requireIngestToken(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const expectedToken = (process.env.INGEST_API_TOKEN || "").trim();
+  if (!expectedToken) {
+    return res.status(503).json({ error: "Ingestão via API não está habilitada. Configure INGEST_API_TOKEN no servidor." });
+  }
+  const suppliedToken = String(req.headers["x-ingest-token"] || "");
+  if (!suppliedToken || !timingSafeEqual(suppliedToken, expectedToken)) {
+    return res.status(401).json({ error: "Token de ingestão inválido ou ausente (header X-Ingest-Token)." });
+  }
+  next();
+}
+
+function registerIngestRoutes(app: express.Express) {
+  // Cada envio substitui o dia inteiro daquele funil — evita duplicar linha
+  // se o N8N reenviar o mesmo dia (ex.: Meta corrigiu números depois).
+  app.post("/api/ingest/meta", requireIngestToken, async (req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Ingestão via API requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const { funnelId, date, rows } = req.body || {};
+      if (!funnelId || typeof funnelId !== "string") {
+        return res.status(400).json({ error: "funnelId é obrigatório." });
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) {
+        return res.status(400).json({ error: "date é obrigatório, no formato YYYY-MM-DD." });
+      }
+      if (!Array.isArray(rows)) {
+        return res.status(400).json({ error: "rows deve ser uma lista." });
+      }
+      const funnels = await loadFunnels();
+      if (!funnels.some((f) => f.id === funnelId)) {
+        return res.status(404).json({ error: `Funil '${funnelId}' não encontrado. Cadastre-o no dashboard antes de enviar dados.` });
+      }
+
+      const pool = await pgPool();
+      await pool.query("BEGIN");
+      try {
+        await pool.query("DELETE FROM meta_ads WHERE funnel_id = $1 AND ad_date = $2", [funnelId, date]);
+        for (const row of rows) {
+          const adId = row.adId != null ? String(row.adId).trim() : "";
+          // Upsert por ad_id além do delete-do-dia acima: protege contra o
+          // mesmo anúncio aparecer duas vezes dentro do mesmo lote (paginação
+          // duplicada na origem), não só entre reenvios.
+          await pool.query(
+            `INSERT INTO meta_ads
+               (funnel_id, ad_date, ad_id, campaign_name, adset_name, ad_name, spend, impressions, link_clicks, landing_page_views, initiate_checkout, creative_thumb_url)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+             ON CONFLICT (funnel_id, ad_date, ad_id) WHERE ad_id IS NOT NULL
+             DO UPDATE SET
+               campaign_name = EXCLUDED.campaign_name, adset_name = EXCLUDED.adset_name, ad_name = EXCLUDED.ad_name,
+               spend = EXCLUDED.spend, impressions = EXCLUDED.impressions, link_clicks = EXCLUDED.link_clicks,
+               landing_page_views = EXCLUDED.landing_page_views, initiate_checkout = EXCLUDED.initiate_checkout,
+               creative_thumb_url = EXCLUDED.creative_thumb_url`,
+            [
+              funnelId, date, adId || null,
+              String(row.campaignName || ""), String(row.adsetName || ""), String(row.adName || ""),
+              Number(row.spend) || 0, Number(row.impressions) || 0, Number(row.linkClicks) || 0,
+              Number(row.landingPageViews) || 0, Number(row.initiateCheckout) || 0,
+              String(row.creativeThumbUrl || "")
+            ]
+          );
+        }
+        await pool.query("COMMIT");
+      } catch (err) {
+        await pool.query("ROLLBACK");
+        throw err;
+      }
+      res.json({ ok: true, funnelId, date, processed: rows.length });
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: error.message || "Falha ao gravar dados de Meta Ads." });
+    }
+  });
+
+  // Upsert por (funnelId, orderId): reenviar o mesmo pedido atualiza a linha
+  // em vez de duplicar a venda.
+  app.post("/api/ingest/vendas", requireIngestToken, async (req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Ingestão via API requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const { funnelId, bucket, rows } = req.body || {};
+      if (!funnelId || typeof funnelId !== "string") {
+        return res.status(400).json({ error: "funnelId é obrigatório." });
+      }
+      const resolvedBucket = bucket === "fgp" ? "fgp" : "standard";
+      if (!Array.isArray(rows)) {
+        return res.status(400).json({ error: "rows deve ser uma lista." });
+      }
+      const funnels = await loadFunnels();
+      if (!funnels.some((f) => f.id === funnelId)) {
+        return res.status(404).json({ error: `Funil '${funnelId}' não encontrado. Cadastre-o no dashboard antes de enviar dados.` });
+      }
+
+      const pool = await pgPool();
+      let processed = 0;
+      await pool.query("BEGIN");
+      try {
+        for (const row of rows) {
+          const orderId = row.orderId != null ? String(row.orderId).trim() : "";
+          const purchasedAt = new Date(row.purchasedAt);
+          if (!row.purchasedAt || Number.isNaN(purchasedAt.getTime())) {
+            throw Object.assign(new Error(`purchasedAt inválido (orderId '${orderId || "sem id"}').`), { status: 400 });
+          }
+          if (!row.email) {
+            throw Object.assign(new Error(`email é obrigatório (orderId '${orderId || "sem id"}').`), { status: 400 });
+          }
+          await pool.query(
+            `INSERT INTO buyers
+               (funnel_id, bucket, order_id, purchased_at, email, amount, utm_campaign, utm_source, utm_medium, utm_term, utm_content, product, order_bump)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+             ON CONFLICT (funnel_id, order_id) WHERE order_id IS NOT NULL
+             DO UPDATE SET
+               bucket = EXCLUDED.bucket, purchased_at = EXCLUDED.purchased_at, email = EXCLUDED.email,
+               amount = EXCLUDED.amount, utm_campaign = EXCLUDED.utm_campaign, utm_source = EXCLUDED.utm_source,
+               utm_medium = EXCLUDED.utm_medium, utm_term = EXCLUDED.utm_term, utm_content = EXCLUDED.utm_content,
+               product = EXCLUDED.product, order_bump = EXCLUDED.order_bump`,
+            [
+              funnelId, resolvedBucket, orderId || null, purchasedAt.toISOString(),
+              String(row.email).trim(), Number(row.amount) || 0,
+              String(row.utmCampaign || ""), String(row.utmSource || ""), String(row.utmMedium || ""),
+              String(row.utmTerm || ""), String(row.utmContent || ""),
+              String(row.product || ""), String(row.orderBump || "")
+            ]
+          );
+          processed++;
+        }
+        await pool.query("COMMIT");
+      } catch (err) {
+        await pool.query("ROLLBACK");
+        throw err;
+      }
+      res.json({ ok: true, funnelId, bucket: resolvedBucket, processed });
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: error.message || "Falha ao gravar dados de vendas." });
+    }
+  });
+}
+
+      const getField = (item: any, ...keys: string[]) => {
+        for (const k of keys) {
+          if (item[k] !== undefined && item[k] !== null && String(item[k]).trim() !== '') {
+            return String(item[k]).trim();
+          }
+        }
+        const itemKeys = Object.keys(item || {});
+        for (const k of keys) {
+          const target = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const foundKey = itemKeys.find(ik => ik.toLowerCase().replace(/[^a-z0-9]/g, '') === target);
+          if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null && String(item[foundKey]).trim() !== '') {
+            return String(item[foundKey]).trim();
+          }
+        }
+        return '';
+      };
+
+      const parseSheetNumber = (value: string) => {
+        const normalized = value.replace(/[^0-9,.-]/g, "");
+        if (!normalized) return 0;
+        const canonical = normalized.includes(",")
+          ? normalized.replace(/\./g, "").replace(",", ".")
+          : normalized.replace(/,/g, "");
+        const parsed = Number(canonical);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+      const normalizeMetaDate = (value: string) => {
+        const trimmed = value.trim();
+        // XLSX stores dates as an Excel serial number (for example, 45948).
+        // Convert it before the client applies its selected-period filter.
+        if (/^\d{4,5}(?:\.\d+)?$/.test(trimmed)) {
+          const serial = Number(trimmed);
+          const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86_400_000);
+          if (!Number.isNaN(date.getTime())) {
+            return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+          }
+        }
+        return trimmed;
+      };
+
+      const formatMeta = (item: any, funil: string) => ({
+        "Data": normalizeMetaDate(getField(item, "Data", "Dia", "Data de início", "Data de inicio", "Data do relatório", "Data do relatorio")),
+        "Nome da Campanha": getField(item, "Nome da Campanha", "Campanha"),
+        "Nome do Conjunto": getField(item, "Nome do Conjunto", "Conjunto de anúncios", "Conjunto de anuncios", "Conjunto"),
+        "Nome do Anúncio": getField(item, "Nome do Anúncio", "Nome do Anuncio", "Anúncio", "Anuncio"),
+        "Gasto": parseSheetNumber(getField(item, "Gasto", "Valor gasto", "Valor gasto (BRL)", "Amount spent")),
+        "Impressões": parseSheetNumber(getField(item, "Impressões", "Impressoes", "Impressions")),
+        "Cliques no Link": parseSheetNumber(getField(item, "Cliques no Link", "Cliques no link", "Link clicks")),
+        "Visualizações da Página de Destino": parseSheetNumber(getField(item, "Visualizações da Página de Destino", "Visualizacoes da Pagina de Destino", "Visualizações da página de destino", "Landing page views")),
+        "Iniciate Checkout": parseSheetNumber(getField(item, "Iniciate Checkout", "Initiate Checkout", "Checkouts iniciados")),
+        "Thumb_Criativo": getField(item, "Thumb_Criativo", "Thumb Criativo", "thumb_criativo", "Thumb_criativo", "Thumbnail", "Thumb", "Imagem", "Preview", "Prévia"),
+        "Funil": funil
+      });
+
+function parseUtcToUtcMinus3(rawStr: any): { dateStr: string; formattedDisplay: string; timestamp: number } {
+  if (!rawStr) return { dateStr: '', formattedDisplay: '', timestamp: 0 };
+  const str = String(rawStr).trim();
+  if (!str) return { dateStr: '', formattedDisplay: '', timestamp: 0 };
+
+  // Match ISO pattern: 2026-08-04T15:41:25.000Z or 2026-08-04 15:41:25 or 2026-08-04
+  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  
+  // Match DD/MM/YYYY pattern: 11/07/2026 - 20:00 or 11/07/2026 às 16:14 or 11/07/2026 20:00:00 or 11/07/2026
+  const dmyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:(?:\s*(?:-|às|at|\s)\s*)(\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  // XLSX exports a date as a raw Excel serial number (days since
+  // 1899-12-30, fractional part = time of day) whenever the cell isn't a
+  // recognized ISO/DD-MM-YYYY string. normalizeMetaDate already converts
+  // this for Meta Ads rows; buyer rows never got the same treatment, so a
+  // bare serial like "46171" fell through to Date.parse(str) below — which
+  // misreads a plain 4-6 digit number as a literal year instead of
+  // rejecting it, silently corrupting the purchase date.
+  const serialMatch = /^\d{4,6}(?:\.\d+)?$/.test(str) ? str : null;
+
+  let utcMs = 0;
+  let hasTime = false;
+
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1], 10);
+    const month = parseInt(isoMatch[2], 10) - 1;
+    const day = parseInt(isoMatch[3], 10);
+    const hours = isoMatch[4] !== undefined ? parseInt(isoMatch[4], 10) : 0;
+    const minutes = isoMatch[5] !== undefined ? parseInt(isoMatch[5], 10) : 0;
+    const seconds = isoMatch[6] !== undefined ? parseInt(isoMatch[6], 10) : 0;
+    hasTime = isoMatch[4] !== undefined;
+
+    if (hasTime) {
+      utcMs = Date.UTC(year, month, day, hours, minutes, seconds);
+    } else {
+      const y = year;
+      const m = String(month + 1).padStart(2, '0');
+      const d = String(day).padStart(2, '0');
+      return {
+        dateStr: `${y}-${m}-${d}`,
+        formattedDisplay: `${d}/${m}/${y}`,
+        timestamp: Date.UTC(year, month, day, 12, 0, 0)
+      };
+    }
+  } else if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const hours = dmyMatch[4] !== undefined ? parseInt(dmyMatch[4], 10) : 0;
+    const minutes = dmyMatch[5] !== undefined ? parseInt(dmyMatch[5], 10) : 0;
+    const seconds = dmyMatch[6] !== undefined ? parseInt(dmyMatch[6], 10) : 0;
+    hasTime = dmyMatch[4] !== undefined;
+
+    if (hasTime) {
+      utcMs = Date.UTC(year, month, day, hours, minutes, seconds);
+    } else {
+      const y = year;
+      const m = String(month + 1).padStart(2, '0');
+      const d = String(day).padStart(2, '0');
+      return {
+        dateStr: `${y}-${m}-${d}`,
+        formattedDisplay: `${d}/${m}/${y}`,
+        timestamp: Date.UTC(year, month, day, 12, 0, 0)
+      };
+    }
+  } else if (serialMatch) {
+    const serial = Number(serialMatch);
+    const days = Math.floor(serial);
+    const fraction = serial - days;
+    hasTime = fraction > 0;
+    if (!hasTime) {
+      const base = new Date(Date.UTC(1899, 11, 30) + days * 86_400_000);
+      const y = base.getUTCFullYear();
+      const m = String(base.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(base.getUTCDate()).padStart(2, '0');
+      return {
+        dateStr: `${y}-${m}-${d}`,
+        formattedDisplay: `${d}/${m}/${y}`,
+        timestamp: Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), 12, 0, 0)
+      };
+    }
+    // Fractional part is the time of day as entered locally (UTC-3) —
+    // convert to a true UTC instant the same way the rest of this function
+    // expects, then let the shared UTC-3 formatting below take over.
+    const localAsUtc = Date.UTC(1899, 11, 30) + days * 86_400_000 + Math.round(fraction * 86_400_000);
+    utcMs = localAsUtc + 3 * 60 * 60 * 1000;
+  } else {
+    const t = Date.parse(str);
+    if (!isNaN(t)) {
+      utcMs = t;
+      hasTime = true;
+    } else {
+      return { dateStr: str, formattedDisplay: str, timestamp: 0 };
+    }
+  }
+
+  // Converter de UTC para UTC-3 (subtrair 3 horas = 3 * 3600 * 1000 ms)
+  const utcMinus3Ms = utcMs - 3 * 60 * 60 * 1000;
+  const d = new Date(utcMinus3Ms);
+
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+
+  const dateStr = `${y}-${m}-${day}`;
+  const formattedDisplay = `${day}/${m}/${y} ${hh}:${mm}`;
+
+  return {
+    dateStr,
+    formattedDisplay,
+    timestamp: utcMinus3Ms
+  };
+}
+
+      const normalizePerpetualProduct = (value: string) => {
+        const normalized = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        if (normalized.includes("formacao gp")) return "Formação GP";
+        if (normalized.includes("acesso vitalicio")) return "Acesso PDZ";
+        if (normalized.includes("gravacao")) return "Gravação PDZ";
+        if (normalized.includes("projeto do zero")) return "Projeto do Zero";
+        return value;
+      };
+
+      const formatBuyers = (item: any, funnel: FunnelConfig) => {
+        const isPerpetualLaunch = funnel.sourceType === "perpetual-launch" || funnel.sourceType === "paid-launch";
+        // Standard sheets use B/C for timestamps. The perpetual-launch model
+        // has a named Data column in A, which must remain a local calendar date.
+        const buyerValues = Object.values(item || {});
+        const rawPurchaseDate = isPerpetualLaunch
+          ? getField(item, "Data", "Data da Compra", "Criado em")
+          : String(buyerValues[1] || buyerValues[2] || "").trim();
+        const rawProduct = isPerpetualLaunch
+          ? getField(item, "Produto", "Produto Principal", "Oferta")
+          : String(item["Produto Principal"] || item["Produto"] || buyerValues[11] || "").trim();
+        const produtoPrincipal = isPerpetualLaunch ? normalizePerpetualProduct(rawProduct) : rawProduct;
+        const orderBump = isPerpetualLaunch ? "" : String(item["Order Bump"] || item["Order bump"] || buyerValues[14] || "").trim();
+
+        const parsedDate = parseUtcToUtcMinus3(rawPurchaseDate);
+
+        return {
+          "Data": parsedDate.dateStr,
+          "Data_Original": rawPurchaseDate,
+          "Data_Hora_Formatada": parsedDate.formattedDisplay,
+          "timestamp": parsedDate.timestamp,
+          "E-mail": getField(item, "E-mail", "Email", "E-mail do comprador", "Comprador"),
+          "Valor": parseSheetNumber(getField(item, "Valor da Transação", "Valor", "Valor Líquido Estimado", "Faturado (Bruto)", "Faturamento", "Preço")),
+          "utm_campaign": item["utm_campaign"] || item["Campanha"] || "",
+          "utm_source": item["utm_source"] || item["Origem"] || "",
+          "utm_medium": item["utm_medium"] || item["Medium"] || "",
+          "utm_term": item["utm_term"] || "",
+          "utm_content": item["utm_content"] || "",
+          "Produto": produtoPrincipal,
+          "Produto Principal": produtoPrincipal,
+          "Order Bump": orderBump,
+          "Funil": funnel.name
+        };
+      };
+
+// One-time import from a sheet into Postgres, run right after a funnel is
+// created/edited with both a spreadsheet link AND DATABASE_URL configured.
+// After this the app never reads that sheet again for this funnel — see
+// the dual-backend split in fetchFunnelDataFromDb/readFunnelStore above.
+// Reuses the exact same fetch + row-shaping the Sheets-backed
+// /api/spreadsheet path uses, so a fresh import matches what the dashboard
+// would have shown from the sheet at that moment. Best-effort: failures are
+// reported to the caller but never block the funnel itself from saving.
+async function importFunnelFromSheet(funnel: FunnelConfig): Promise<{ metaRows: number; buyerRows: number; fgpRows: number; creativeRows: number }> {
+  const pool = await pgPool();
+  const [{ metaItems, buyerItems, fgpItems }, criativosItems] = await Promise.all([
+    fetchFunnelSourceRows(funnel.sheetId),
+    fetchCriativosWithThumbs(funnel.sheetId)
+  ]);
+
+  const metaRows = metaItems.map((item: any) => formatMeta(item, funnel.name)).filter((row: any) => row["Data"]);
+  const standardRows = buyerItems.map((item: any) => formatBuyers(item, funnel));
+  const fgpRows = fgpItems.map((item: any) => formatBuyers(item, funnel));
+
+  await pool.query("BEGIN");
+  try {
+    await pool.query("DELETE FROM meta_ads WHERE funnel_id = $1", [funnel.id]);
+    await pool.query("DELETE FROM buyers WHERE funnel_id = $1", [funnel.id]);
+    await pool.query("DELETE FROM creatives WHERE funnel_id = $1", [funnel.id]);
+
+    for (const row of metaRows) {
+      await pool.query(
+        `INSERT INTO meta_ads (funnel_id, ad_date, campaign_name, adset_name, ad_name, spend, impressions, link_clicks, landing_page_views, initiate_checkout, creative_thumb_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [funnel.id, row["Data"], row["Nome da Campanha"], row["Nome do Conjunto"], row["Nome do Anúncio"],
+         row["Gasto"], row["Impressões"], row["Cliques no Link"], row["Visualizações da Página de Destino"],
+         row["Iniciate Checkout"], row["Thumb_Criativo"]]
+      );
+    }
+
+    let buyersInserted = 0;
+    for (const [rows, bucket] of [[standardRows, "standard"], [fgpRows, "fgp"]] as const) {
+      for (const row of rows) {
+        if (!row["Data"]) continue; // same unrecoverable-date guard as db/backfill-postgres.mjs
+        // "timestamp" is already a true UTC instant now that
+        // parseUtcToUtcMinus3 handles Excel serials — see purchased_at
+        // comment in fetchBuyersFromDb for the -3h/+3h convention this mirrors.
+        const purchasedAt = new Date(row["timestamp"] + 3 * 60 * 60 * 1000);
+        await pool.query(
+          `INSERT INTO buyers (funnel_id, bucket, purchased_at, email, amount, utm_campaign, utm_source, utm_medium, utm_term, utm_content, product, order_bump)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          [funnel.id, bucket, purchasedAt, row["E-mail"], row["Valor"], row["utm_campaign"], row["utm_source"],
+           row["utm_medium"], row["utm_term"], row["utm_content"], row["Produto"], row["Order Bump"]]
+        );
+        buyersInserted++;
+      }
+    }
+
+    for (const row of criativosItems) {
+      await pool.query(
+        `INSERT INTO creatives (funnel_id, creative_name, link, thumb_url) VALUES ($1,$2,$3,$4)`,
+        [funnel.id, row["Criativos"], row["Link"], row["Thumb_Criativo"]]
+      );
+    }
+
+    await pool.query("COMMIT");
+    return { metaRows: metaRows.length, buyerRows: buyersInserted, fgpRows: fgpRows.length, creativeRows: criativosItems.length };
+  } catch (error) {
+    await pool.query("ROLLBACK");
+    throw error;
+  }
+}
+
 async function saveCustomFunnels(funnels: FunnelConfig[]) {
   const customFunnels = funnels.filter((funnel) => !funnel.builtIn);
   const removedBuiltInIds = DEFAULT_FUNNELS
@@ -810,7 +1360,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: "32kb" }));
+  app.use(express.json({ limit: "1mb" }));
 
   // Health check para as probes do Kubernetes. Precisa ficar antes de
   // requireDashboardAuth: com Basic Auth ativo qualquer outra rota responde 401
@@ -818,6 +1368,11 @@ async function startServer() {
   app.get("/healthz", (_req, res) => {
     res.status(200).json({ status: "ok", version: process.env.APP_VERSION || "dev" });
   });
+
+  // Ingestão via automação externa (N8N): autentica por token próprio, não por
+  // Basic Auth (quem chama é uma automação, não uma pessoa no navegador), por
+  // isso fica registrada antes de requireDashboardAuth, igual /healthz.
+  registerIngestRoutes(app);
 
   app.use(requireDashboardAuth);
 
@@ -868,6 +1423,25 @@ async function startServer() {
     }
   });
 
+  const ALLOWED_SOURCE_TYPES: FunnelSourceType[] = ["standard", "perpetual-launch", "paid-launch"];
+
+  // Sheet-backed funnels (DATABASE_URL unset) still need a real, readable
+  // sheet: sourceType is auto-detected by fetching it, same as always. Once
+  // Postgres is the source of truth, this app never reads the sheet at all,
+  // so a link is optional (kept only as the user's own backup reference) and
+  // sourceType is picked by whoever creates the funnel instead of detected.
+  async function resolveSourceType(spreadsheetUrl: unknown, sheetId: string, requestedSourceType: unknown): Promise<FunnelSourceType> {
+    if (DATABASE_URL) {
+      return ALLOWED_SOURCE_TYPES.includes(requestedSourceType as FunnelSourceType)
+        ? (requestedSourceType as FunnelSourceType)
+        : "standard";
+    }
+    if (!sheetId) {
+      throw Object.assign(new Error("Cole um link válido do Google Sheets."), { status: 400 });
+    }
+    return validateFunnelSource(sheetId);
+  }
+
   app.post("/api/funnels", requireDashboardAdmin, async (req, res) => {
     try {
       const name = String(req.body?.name || "").trim().replace(/\s+/g, " ");
@@ -875,16 +1449,16 @@ async function startServer() {
       if (name.length < 3 || name.length > 80) {
         return res.status(400).json({ error: "Informe um nome de funil entre 3 e 80 caracteres." });
       }
-      if (!sheetId) {
+      if (!DATABASE_URL && !sheetId) {
         return res.status(400).json({ error: "Cole um link válido do Google Sheets." });
       }
 
       const funnels = await loadFunnels();
-      if (funnels.some((funnel) => funnel.sheetId === sheetId)) {
+      if (sheetId && funnels.some((funnel) => funnel.sheetId === sheetId)) {
         return res.status(409).json({ error: "Essa planilha já está cadastrada em um funil." });
       }
 
-      const sourceType = await validateFunnelSource(sheetId);
+      const sourceType = await resolveSourceType(req.body?.spreadsheetUrl, sheetId, req.body?.sourceType);
 
       const customFunnels = funnels.filter((funnel) => !funnel.builtIn);
       const funnel: FunnelConfig = {
@@ -896,11 +1470,22 @@ async function startServer() {
         builtIn: false
       };
       await saveCustomFunnels([...funnels, funnel]);
-      res.status(201).json({ funnel });
+
+      let importResult: any = undefined;
+      let importError: string | undefined;
+      if (DATABASE_URL && sheetId) {
+        try {
+          importResult = await importFunnelFromSheet(funnel);
+        } catch (error: any) {
+          importError = error?.message || "Não foi possível importar os dados da planilha agora.";
+          console.error(`Erro ao importar planilha do funil ${funnel.id} pro Postgres:`, error);
+        }
+      }
+      res.status(201).json({ funnel, import: importResult, importError });
     } catch (error: any) {
       const message = error.message || "Não foi possível validar a planilha.";
       const isPermissionError = /privada|permissão|compartilhar/i.test(message);
-      res.status(isPermissionError ? 403 : 422).json({ error: message });
+      res.status(error.status || (isPermissionError ? 403 : 422)).json({ error: message });
     }
   });
 
@@ -911,25 +1496,36 @@ async function startServer() {
       if (name.length < 3 || name.length > 80) {
         return res.status(400).json({ error: "Informe um nome de funil entre 3 e 80 caracteres." });
       }
-      if (!sheetId) {
+      if (!DATABASE_URL && !sheetId) {
         return res.status(400).json({ error: "Cole um link válido do Google Sheets." });
       }
 
       const funnels = await loadFunnels();
       const funnel = funnels.find((item) => item.id === req.params.funnelId);
       if (!funnel) return res.status(404).json({ error: "Funil não encontrado." });
-      if (funnels.some((item) => item.id !== funnel.id && item.sheetId === sheetId)) {
+      if (sheetId && funnels.some((item) => item.id !== funnel.id && item.sheetId === sheetId)) {
         return res.status(409).json({ error: "Essa planilha já está cadastrada em outro funil." });
       }
 
-      const sourceType = await validateFunnelSource(sheetId);
+      const sourceType = await resolveSourceType(req.body?.spreadsheetUrl, sheetId, req.body?.sourceType);
       const updated: FunnelConfig = { ...funnel, name, sheetId, sourceType };
       await saveCustomFunnels(funnels.map((item) => item.id === funnel.id ? updated : item));
-      res.json({ funnel: updated });
+
+      let importResult: any = undefined;
+      let importError: string | undefined;
+      if (DATABASE_URL && sheetId) {
+        try {
+          importResult = await importFunnelFromSheet(updated);
+        } catch (error: any) {
+          importError = error?.message || "Não foi possível importar os dados da planilha agora.";
+          console.error(`Erro ao importar planilha do funil ${updated.id} pro Postgres:`, error);
+        }
+      }
+      res.json({ funnel: updated, import: importResult, importError });
     } catch (error: any) {
       const message = error.message || "Não foi possível atualizar o funil.";
       const isPermissionError = /privada|permissão|compartilhar/i.test(message);
-      res.status(isPermissionError ? 403 : 422).json({ error: message });
+      res.status(error.status || (isPermissionError ? 403 : 422)).json({ error: message });
     }
   });
 
@@ -962,191 +1558,39 @@ async function startServer() {
         return res.status(400).json({ error: "Funil inválido. Selecione um funil disponível e tente novamente." });
       }
 
-      const getField = (item: any, ...keys: string[]) => {
-        for (const k of keys) {
-          if (item[k] !== undefined && item[k] !== null && String(item[k]).trim() !== '') {
-            return String(item[k]).trim();
-          }
-        }
-        const itemKeys = Object.keys(item || {});
-        for (const k of keys) {
-          const target = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const foundKey = itemKeys.find(ik => ik.toLowerCase().replace(/[^a-z0-9]/g, '') === target);
-          if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null && String(item[foundKey]).trim() !== '') {
-            return String(item[foundKey]).trim();
-          }
-        }
-        return '';
-      };
-
-      const parseSheetNumber = (value: string) => {
-        const normalized = value.replace(/[^0-9,.-]/g, "");
-        if (!normalized) return 0;
-        const canonical = normalized.includes(",")
-          ? normalized.replace(/\./g, "").replace(",", ".")
-          : normalized.replace(/,/g, "");
-        const parsed = Number(canonical);
-        return Number.isFinite(parsed) ? parsed : 0;
-      };
-      const normalizeMetaDate = (value: string) => {
-        const trimmed = value.trim();
-        // XLSX stores dates as an Excel serial number (for example, 45948).
-        // Convert it before the client applies its selected-period filter.
-        if (/^\d{4,5}(?:\.\d+)?$/.test(trimmed)) {
-          const serial = Number(trimmed);
-          const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86_400_000);
-          if (!Number.isNaN(date.getTime())) {
-            return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-          }
-        }
-        return trimmed;
-      };
-
-      const formatMeta = (item: any, funil: string) => ({
-        "Data": normalizeMetaDate(getField(item, "Data", "Dia", "Data de início", "Data de inicio", "Data do relatório", "Data do relatorio")),
-        "Nome da Campanha": getField(item, "Nome da Campanha", "Campanha"),
-        "Nome do Conjunto": getField(item, "Nome do Conjunto", "Conjunto de anúncios", "Conjunto de anuncios", "Conjunto"),
-        "Nome do Anúncio": getField(item, "Nome do Anúncio", "Nome do Anuncio", "Anúncio", "Anuncio"),
-        "Gasto": parseSheetNumber(getField(item, "Gasto", "Valor gasto", "Valor gasto (BRL)", "Amount spent")),
-        "Impressões": parseSheetNumber(getField(item, "Impressões", "Impressoes", "Impressions")),
-        "Cliques no Link": parseSheetNumber(getField(item, "Cliques no Link", "Cliques no link", "Link clicks")),
-        "Visualizações da Página de Destino": parseSheetNumber(getField(item, "Visualizações da Página de Destino", "Visualizacoes da Pagina de Destino", "Visualizações da página de destino", "Landing page views")),
-        "Iniciate Checkout": parseSheetNumber(getField(item, "Iniciate Checkout", "Initiate Checkout", "Checkouts iniciados")),
-        "Thumb_Criativo": getField(item, "Thumb_Criativo", "Thumb Criativo", "thumb_criativo", "Thumb_criativo", "Thumbnail", "Thumb", "Imagem", "Preview", "Prévia"),
-        "Funil": funil
-      });
-
-function parseUtcToUtcMinus3(rawStr: any): { dateStr: string; formattedDisplay: string; timestamp: number } {
-  if (!rawStr) return { dateStr: '', formattedDisplay: '', timestamp: 0 };
-  const str = String(rawStr).trim();
-  if (!str) return { dateStr: '', formattedDisplay: '', timestamp: 0 };
-
-  // Match ISO pattern: 2026-08-04T15:41:25.000Z or 2026-08-04 15:41:25 or 2026-08-04
-  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  
-  // Match DD/MM/YYYY pattern: 11/07/2026 - 20:00 or 11/07/2026 às 16:14 or 11/07/2026 20:00:00 or 11/07/2026
-  const dmyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:(?:\s*(?:-|às|at|\s)\s*)(\d{2}):(\d{2})(?::(\d{2}))?)?/);
-
-  let utcMs = 0;
-  let hasTime = false;
-
-  if (isoMatch) {
-    const year = parseInt(isoMatch[1], 10);
-    const month = parseInt(isoMatch[2], 10) - 1;
-    const day = parseInt(isoMatch[3], 10);
-    const hours = isoMatch[4] !== undefined ? parseInt(isoMatch[4], 10) : 0;
-    const minutes = isoMatch[5] !== undefined ? parseInt(isoMatch[5], 10) : 0;
-    const seconds = isoMatch[6] !== undefined ? parseInt(isoMatch[6], 10) : 0;
-    hasTime = isoMatch[4] !== undefined;
-
-    if (hasTime) {
-      utcMs = Date.UTC(year, month, day, hours, minutes, seconds);
-    } else {
-      const y = year;
-      const m = String(month + 1).padStart(2, '0');
-      const d = String(day).padStart(2, '0');
-      return {
-        dateStr: `${y}-${m}-${d}`,
-        formattedDisplay: `${d}/${m}/${y}`,
-        timestamp: Date.UTC(year, month, day, 12, 0, 0)
-      };
-    }
-  } else if (dmyMatch) {
-    const day = parseInt(dmyMatch[1], 10);
-    const month = parseInt(dmyMatch[2], 10) - 1;
-    const year = parseInt(dmyMatch[3], 10);
-    const hours = dmyMatch[4] !== undefined ? parseInt(dmyMatch[4], 10) : 0;
-    const minutes = dmyMatch[5] !== undefined ? parseInt(dmyMatch[5], 10) : 0;
-    const seconds = dmyMatch[6] !== undefined ? parseInt(dmyMatch[6], 10) : 0;
-    hasTime = dmyMatch[4] !== undefined;
-
-    if (hasTime) {
-      utcMs = Date.UTC(year, month, day, hours, minutes, seconds);
-    } else {
-      const y = year;
-      const m = String(month + 1).padStart(2, '0');
-      const d = String(day).padStart(2, '0');
-      return {
-        dateStr: `${y}-${m}-${d}`,
-        formattedDisplay: `${d}/${m}/${y}`,
-        timestamp: Date.UTC(year, month, day, 12, 0, 0)
-      };
-    }
-  } else {
-    const t = Date.parse(str);
-    if (!isNaN(t)) {
-      utcMs = t;
-      hasTime = true;
-    } else {
-      return { dateStr: str, formattedDisplay: str, timestamp: 0 };
-    }
-  }
-
-  // Converter de UTC para UTC-3 (subtrair 3 horas = 3 * 3600 * 1000 ms)
-  const utcMinus3Ms = utcMs - 3 * 60 * 60 * 1000;
-  const d = new Date(utcMinus3Ms);
-
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  const hh = String(d.getUTCHours()).padStart(2, '0');
-  const mm = String(d.getUTCMinutes()).padStart(2, '0');
-
-  const dateStr = `${y}-${m}-${day}`;
-  const formattedDisplay = `${day}/${m}/${y} ${hh}:${mm}`;
-
-  return {
-    dateStr,
-    formattedDisplay,
-    timestamp: utcMinus3Ms
-  };
-}
-
-      const normalizePerpetualProduct = (value: string) => {
-        const normalized = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-        if (normalized.includes("formacao gp")) return "Formação GP";
-        if (normalized.includes("acesso vitalicio")) return "Acesso PDZ";
-        if (normalized.includes("gravacao")) return "Gravação PDZ";
-        if (normalized.includes("projeto do zero")) return "Projeto do Zero";
-        return value;
-      };
-
-      const formatBuyers = (item: any, funnel: FunnelConfig) => {
-        const isPerpetualLaunch = funnel.sourceType === "perpetual-launch" || funnel.sourceType === "paid-launch";
-        // Standard sheets use B/C for timestamps. The perpetual-launch model
-        // has a named Data column in A, which must remain a local calendar date.
-        const buyerValues = Object.values(item || {});
-        const rawPurchaseDate = isPerpetualLaunch
-          ? getField(item, "Data", "Data da Compra", "Criado em")
-          : String(buyerValues[1] || buyerValues[2] || "").trim();
-        const rawProduct = isPerpetualLaunch
-          ? getField(item, "Produto", "Produto Principal", "Oferta")
-          : String(item["Produto Principal"] || item["Produto"] || buyerValues[11] || "").trim();
-        const produtoPrincipal = isPerpetualLaunch ? normalizePerpetualProduct(rawProduct) : rawProduct;
-        const orderBump = isPerpetualLaunch ? "" : String(item["Order Bump"] || item["Order bump"] || buyerValues[14] || "").trim();
-
-        const parsedDate = parseUtcToUtcMinus3(rawPurchaseDate);
-
-        return {
-          "Data": parsedDate.dateStr,
-          "Data_Original": rawPurchaseDate,
-          "Data_Hora_Formatada": parsedDate.formattedDisplay,
-          "timestamp": parsedDate.timestamp,
-          "E-mail": getField(item, "E-mail", "Email", "E-mail do comprador", "Comprador"),
-          "Valor": parseSheetNumber(getField(item, "Valor da Transação", "Valor", "Valor Líquido Estimado", "Faturado (Bruto)", "Faturamento", "Preço")),
-          "utm_campaign": item["utm_campaign"] || item["Campanha"] || "",
-          "utm_source": item["utm_source"] || item["Origem"] || "",
-          "utm_medium": item["utm_medium"] || item["Medium"] || "",
-          "utm_term": item["utm_term"] || "",
-          "utm_content": item["utm_content"] || "",
-          "Produto": produtoPrincipal,
-          "Produto Principal": produtoPrincipal,
-          "Order Bump": orderBump,
-          "Funil": funnel.name
-        };
-      };
 
       const sources = await Promise.all(selectedFunnels.map(async (funnel) => {
+        if (DATABASE_URL) {
+          try {
+            const { metaItems, compradoresItems, fgpItems, criativosItems } = await fetchFunnelDataFromDb(funnel);
+            return {
+              funnel,
+              fromDb: true as const,
+              metaItems,
+              compradoresItems,
+              fgpItems,
+              criativosItems,
+              diagnostics: {
+                metaRows: metaItems.length,
+                buyerRows: compradoresItems.length,
+                fgpRows: fgpItems.length,
+                creativeRows: criativosItems.length,
+                sourceError: null as string | null,
+                creativeError: null as string | null
+              }
+            };
+          } catch (error: any) {
+            console.error(`Erro ao ler dados do Postgres para o funil ${funnel.id}:`, error);
+            const message = error?.message || "Não foi possível ler os dados do banco.";
+            return {
+              funnel,
+              fromDb: true as const,
+              metaItems: [], compradoresItems: [], fgpItems: [], criativosItems: [],
+              diagnostics: { metaRows: 0, buyerRows: 0, fgpRows: 0, creativeRows: 0, sourceError: message, creativeError: null }
+            };
+          }
+        }
+
         const [funnelSourceResult, criativosResult] = await Promise.allSettled([
           fetchFunnelSourceRows(funnel.sheetId),
           fetchCriativosWithThumbs(funnel.sheetId)
@@ -1165,6 +1609,7 @@ function parseUtcToUtcMinus3(rawStr: any): { dateStr: string; formattedDisplay: 
 
         return {
           funnel,
+          fromDb: false as const,
           metaItems,
           compradoresItems,
           fgpItems,
@@ -1180,10 +1625,17 @@ function parseUtcToUtcMinus3(rawStr: any): { dateStr: string; formattedDisplay: 
         };
       }));
 
+      // DB rows come back already in final response shape (fetchFunnelDataFromDb
+      // does the formatting itself — formatMeta/formatBuyers are Sheets-XLSX
+      // normalizers and don't apply to already-clean DB rows). Sheets rows still
+      // need the existing formatting step.
       const data: any = {
-        "Dados da Meta": sources.flatMap(({ funnel, metaItems }) => metaItems.map((item) => formatMeta(item, funnel.name))),
-        "Dados dos Compradores": sources.flatMap(({ funnel, compradoresItems }) => compradoresItems.map((item) => formatBuyers(item, funnel))),
-        "Dados dos Compradores - FGP": sources.flatMap(({ funnel, fgpItems }) => fgpItems.map((item) => formatBuyers(item, funnel))),
+        "Dados da Meta": sources.flatMap(({ funnel, metaItems, fromDb }) =>
+          fromDb ? metaItems : metaItems.map((item: any) => formatMeta(item, funnel.name))),
+        "Dados dos Compradores": sources.flatMap(({ funnel, compradoresItems, fromDb }) =>
+          fromDb ? compradoresItems : compradoresItems.map((item: any) => formatBuyers(item, funnel))),
+        "Dados dos Compradores - FGP": sources.flatMap(({ funnel, fgpItems, fromDb }) =>
+          fromDb ? fgpItems : fgpItems.map((item: any) => formatBuyers(item, funnel))),
         "Link dos criativos": sources.flatMap(({ criativosItems }) => criativosItems)
       };
 
