@@ -1,0 +1,20 @@
+# Só pra dev local: sobe um Postgres pra testar o backend novo de dados
+# (ver db/schema.sql e DATABASE_URL no .env.example). `npm run dev` continua
+# rodando fora de container, só aponta pra esse Postgres.
+#
+# A VPS não usa este arquivo — deploy lá continua via `docker run` manual
+# (ver README / .infra), mesmo padrão já estabelecido.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: allevo
+      POSTGRES_USER: allevo
+      POSTGRES_PASSWORD: allevo_dev_only
+    ports:
+      - "5432:5432"
+    volumes:
+      - allevo-pgdata:/var/lib/postgresql/data
+
+volumes:
+  allevo-pgdata:
