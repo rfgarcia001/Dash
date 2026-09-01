@@ -1,8 +1,8 @@
 # API de ingestão (N8N → Postgres)
 
-Dois endpoints, um pra cada automação: Meta Ads e Vendas. Cada um grava
-direto nas tabelas do Postgres (`db/schema.sql`) — o dashboard só faz
-`SELECT` nelas, nunca escreve.
+Três endpoints: Meta Ads, Vendas e Criativos. Cada um grava direto nas
+tabelas do Postgres (`db/schema.sql`) — o dashboard só faz `SELECT` nelas,
+nunca escreve.
 
 Só funcionam quando o servidor tem `DATABASE_URL` **e** `INGEST_API_TOKEN`
 configuradas (ver `.env.example`). Sem isso, ambos respondem `503`.
@@ -134,6 +134,42 @@ Erros: `400` (funnelId/rows/email/purchasedAt inválido — a mensagem cita o
 
 ---
 
+## `POST /api/ingest/criativos`
+
+Sem dimensão de data — criativo não muda por dia. Cada requisição
+**substitui a lista inteira** daquele funil (apaga e regrava), igual ao
+"Append or Update" por nome que a aba "Link Criativos" já faz hoje na
+planilha.
+
+### Request
+
+```json
+{
+  "funnelId": "iadz",
+  "rows": [
+    {
+      "creativeName": "AD029",
+      "link": "https://instagram.com/p/xyz",
+      "thumbUrl": "https://scontent.xx.fbcdn.net/.../thumb.jpg"
+    }
+  ]
+}
+```
+
+`creativeName` é obrigatório por linha (linha sem ele é ignorada); `link` e
+`thumbUrl` são opcionais (viram `""` se ausentes).
+
+### Response
+
+```json
+{ "ok": true, "funnelId": "iadz", "processed": 1 }
+```
+
+Erros: `400` (funnelId/rows inválido), `404` (funil não cadastrado), `503`
+(ingestão desabilitada no servidor).
+
+---
+
 ## Testando com curl
 
 ```bash
@@ -146,4 +182,9 @@ curl -X POST https://<host>/api/ingest/vendas \
   -H "X-Ingest-Token: $INGEST_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"funnelId":"iadz","rows":[{"orderId":"TESTE-1","purchasedAt":"2026-08-26T12:00:00-03:00","email":"teste@example.com","amount":1}]}'
+
+curl -X POST https://<host>/api/ingest/criativos \
+  -H "X-Ingest-Token: $INGEST_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"funnelId":"iadz","rows":[{"creativeName":"AD029","link":"https://instagram.com/p/xyz","thumbUrl":"https://example.com/thumb.jpg"}]}'
 ```

@@ -442,6 +442,48 @@ function registerIngestRoutes(app: express.Express) {
       res.status(error.status || 500).json({ error: error.message || "Falha ao gravar dados de vendas." });
     }
   });
+
+  // Sem dimensão de data (criativo não muda por dia) — cada envio substitui
+  // a lista inteira daquele funil, igual ao "Append or Update" por nome hoje
+  // faz na aba "Link Criativos" da planilha.
+  app.post("/api/ingest/criativos", requireIngestToken, async (req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Ingestão via API requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const { funnelId, rows } = req.body || {};
+      if (!funnelId || typeof funnelId !== "string") {
+        return res.status(400).json({ error: "funnelId é obrigatório." });
+      }
+      if (!Array.isArray(rows)) {
+        return res.status(400).json({ error: "rows deve ser uma lista." });
+      }
+      const funnels = await loadFunnels();
+      if (!funnels.some((f) => f.id === funnelId)) {
+        return res.status(404).json({ error: `Funil '${funnelId}' não encontrado. Cadastre-o no dashboard antes de enviar dados.` });
+      }
+
+      const pool = await pgPool();
+      await pool.query("BEGIN");
+      try {
+        await pool.query("DELETE FROM creatives WHERE funnel_id = $1", [funnelId]);
+        for (const row of rows) {
+          if (!row.creativeName) continue;
+          await pool.query(
+            `INSERT INTO creatives (funnel_id, creative_name, link, thumb_url) VALUES ($1,$2,$3,$4)`,
+            [funnelId, String(row.creativeName), String(row.link || ""), String(row.thumbUrl || "")]
+          );
+        }
+        await pool.query("COMMIT");
+      } catch (err) {
+        await pool.query("ROLLBACK");
+        throw err;
+      }
+      res.json({ ok: true, funnelId, processed: rows.length });
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: error.message || "Falha ao gravar dados de criativos." });
+    }
+  });
 }
 
       const getField = (item: any, ...keys: string[]) => {

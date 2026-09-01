@@ -16,6 +16,7 @@ fix-*.cjs
 .agents/
 .codex/
 .claude/settings.local.json
+docs/ingest-api-vps.local.md
 
 # impeccable-ignore-start
 # Ephemeral output, runtime state, and per-dev overrides.
