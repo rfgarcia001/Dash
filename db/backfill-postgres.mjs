@@ -117,10 +117,19 @@ async function backfillFunnel(pool, funnelId) {
       }
     }
 
+    // Upsert por (funnelId, creativeName) — mesmo comportamento do
+    // /api/ingest/criativos: nunca apaga, só adiciona/atualiza. Uma sheet
+    // pode ter o mesmo nome de criativo repetido (mesmo anúncio reaproveitado
+    // em campanhas diferentes), o que violaria o índice único se fosse INSERT
+    // simples.
     for (const row of creatives) {
+      if (!row["Criativos"]) continue;
       await pool.query(
-        `INSERT INTO creatives (funnel_id, creative_name, link, thumb_url) VALUES ($1,$2,$3,$4)`,
-        [funnelId, row["Criativos"], row["Link"], row["Thumb_Criativo"]]
+        `INSERT INTO creatives (funnel_id, creative_name, link, thumb_url)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (funnel_id, creative_name)
+         DO UPDATE SET link = EXCLUDED.link, thumb_url = EXCLUDED.thumb_url`,
+        [funnelId, row["Criativos"], row["Link"] || "", row["Thumb_Criativo"] || ""]
       );
     }
 
