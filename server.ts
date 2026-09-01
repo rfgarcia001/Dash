@@ -443,9 +443,12 @@ function registerIngestRoutes(app: express.Express) {
     }
   });
 
-  // Sem dimensão de data (criativo não muda por dia) — cada envio substitui
-  // a lista inteira daquele funil, igual ao "Append or Update" por nome hoje
-  // faz na aba "Link Criativos" da planilha.
+  // Sem dimensão de data (criativo não muda por dia). Upsert por
+  // (funnelId, creativeName) — cada rodada do N8N só enxerga os anúncios
+  // ativos naquela janela (a origem aplica filtro de data), então um
+  // full-replace apagaria criativos antigos ainda relevantes. Mesmo
+  // comportamento do "Append or Update" por "Nome Criativo" que a planilha
+  // já fazia: nunca some, só adiciona/atualiza.
   app.post("/api/ingest/criativos", requireIngestToken, async (req, res) => {
     if (!DATABASE_URL) {
       return res.status(503).json({ error: "Ingestão via API requer DATABASE_URL configurada no servidor." });
@@ -464,22 +467,26 @@ function registerIngestRoutes(app: express.Express) {
       }
 
       const pool = await pgPool();
+      let processed = 0;
       await pool.query("BEGIN");
       try {
-        await pool.query("DELETE FROM creatives WHERE funnel_id = $1", [funnelId]);
         for (const row of rows) {
           if (!row.creativeName) continue;
           await pool.query(
-            `INSERT INTO creatives (funnel_id, creative_name, link, thumb_url) VALUES ($1,$2,$3,$4)`,
+            `INSERT INTO creatives (funnel_id, creative_name, link, thumb_url)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (funnel_id, creative_name)
+             DO UPDATE SET link = EXCLUDED.link, thumb_url = EXCLUDED.thumb_url`,
             [funnelId, String(row.creativeName), String(row.link || ""), String(row.thumbUrl || "")]
           );
+          processed++;
         }
         await pool.query("COMMIT");
       } catch (err) {
         await pool.query("ROLLBACK");
         throw err;
       }
-      res.json({ ok: true, funnelId, processed: rows.length });
+      res.json({ ok: true, funnelId, processed });
     } catch (error: any) {
       res.status(error.status || 500).json({ error: error.message || "Falha ao gravar dados de criativos." });
     }

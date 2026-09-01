@@ -136,10 +136,12 @@ Erros: `400` (funnelId/rows/email/purchasedAt inválido — a mensagem cita o
 
 ## `POST /api/ingest/criativos`
 
-Sem dimensão de data — criativo não muda por dia. Cada requisição
-**substitui a lista inteira** daquele funil (apaga e regrava), igual ao
-"Append or Update" por nome que a aba "Link Criativos" já faz hoje na
-planilha.
+Sem dimensão de data — criativo não muda por dia. Upsert por
+`(funnelId, creativeName)`: reenviar o mesmo nome atualiza `link`/`thumbUrl`,
+nunca apaga. Igual ao "Append or Update" por nome que a aba "Link Criativos"
+já faz hoje na planilha — importante porque a origem (Meta Ads) normalmente
+só retorna os anúncios ativos numa janela recente, então um "substituir
+tudo" apagaria criativos antigos ainda relevantes.
 
 ### Request
 

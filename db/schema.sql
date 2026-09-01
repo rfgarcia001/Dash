@@ -67,3 +67,13 @@ CREATE TABLE IF NOT EXISTS creatives (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS creatives_funnel_idx ON creatives (funnel_id);
+-- Idempotente: descarta duplicatas (funnel_id, creative_name) de antes desta
+-- constraint existir, mantendo a linha mais recente — senão o índice único
+-- abaixo falha ao criar.
+DELETE FROM creatives a USING creatives b
+WHERE a.funnel_id = b.funnel_id AND a.creative_name = b.creative_name AND a.id < b.id;
+-- Upsert por nome na ingestão via API: cada rodada do N8N só enxerga os
+-- anúncios ativos naquela janela, então nunca pode apagar criativos vistos
+-- em rodadas anteriores — mesmo comportamento do "Append or Update" por
+-- "Nome Criativo" que a planilha já fazia.
+CREATE UNIQUE INDEX IF NOT EXISTS creatives_funnel_name_uidx ON creatives (funnel_id, creative_name);
