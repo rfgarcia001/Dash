@@ -21,11 +21,32 @@ puro no workflow).
 
 ## `funnelId`
 
-Todo envio precisa do `funnelId` do funil já cadastrado no dashboard —
-é o `id` que aparece em `GET /api/funnels` (ex.: `iadz`,
-`lancamento-pago-maio-2026`). Se o funil ainda não existe, cadastre primeiro
-pela tela "Novo funil" (pode ser sem link de planilha, já que a fonte agora
-é o banco) e pegue o `id` gerado ali antes de configurar a automação no N8N.
+Todo envio precisa do `funnelId` do funil já cadastrado no dashboard. Se o
+funil ainda não existe, cadastre primeiro pela tela "Novo funil" (pode ser
+sem link de planilha, já que a fonte agora é o banco) e pegue o `id` gerado
+ali antes de configurar a automação no N8N.
+
+---
+
+## `GET /api/ingest/funnels`
+
+Lista os `funnelId` válidos — pra quem está montando a automação consultar
+sem precisar da senha do dashboard (aquela é credencial de humano, essa é
+de automação, mesmo `X-Ingest-Token` dos outros endpoints).
+
+### Response
+
+```json
+{
+  "funnels": [
+    { "id": "estrategia", "name": "Livro Estratégia em Ação" },
+    { "id": "gestao-ia", "name": "Livro Gestão de Projetos com IA" }
+  ]
+}
+```
+
+Erros: `401` (token inválido/ausente), `503` (ingestão desabilitada no
+servidor).
 
 ---
 

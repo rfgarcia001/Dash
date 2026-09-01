@@ -318,6 +318,18 @@ function requireIngestToken(req: express.Request, res: express.Response, next: e
 }
 
 function registerIngestRoutes(app: express.Express) {
+  // Consulta pra quem está montando a automação (N8N) descobrir os
+  // funnelId válidos sem precisar da senha do dashboard (credencial de
+  // humano, não de automação).
+  app.get("/api/ingest/funnels", requireIngestToken, async (_req, res) => {
+    try {
+      const funnels = await loadFunnels();
+      res.json({ funnels: funnels.map((f) => ({ id: f.id, name: f.name })) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Não foi possível carregar os funis." });
+    }
+  });
+
   // Cada envio substitui o dia inteiro daquele funil — evita duplicar linha
   // se o N8N reenviar o mesmo dia (ex.: Meta corrigiu números depois).
   app.post("/api/ingest/meta", requireIngestToken, async (req, res) => {
