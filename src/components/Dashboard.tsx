@@ -2,9 +2,9 @@ import React, { useEffect, useState, useMemo, useRef, useTransition } from 'reac
 import { 
   Calendar, RotateCcw, LayoutDashboard, Layers, Disc, MousePointer2, Package, 
   DollarSign, TrendingUp, TrendingDown, Zap, Ticket, ShoppingCart, Target, Megaphone, ChevronDown, PieChart, Eye, MousePointerClick, Monitor, Plus, Equal, Image, ExternalLink, Search, Bell, AlertTriangle, Check, X, Pencil, Trash2,
-  ShieldCheck, LogOut, UserCheck, Shield, Maximize2, PanelLeftClose, PanelLeftOpen, History, Sun, Moon
+  ShieldCheck, LogOut, UserCheck, Shield, Maximize2, PanelLeftClose, PanelLeftOpen, History, Sun, Moon, ArrowLeft
 } from 'lucide-react';
-import { createDashboardFunnel, DashboardFunnel, deleteDashboardFunnel, fetchDashboardFunnels, fetchSpreadsheetData, FunnelImportResult, updateDashboardFunnel } from '../services/api';
+import { createDashboardFunnel, DashboardFunnel, deleteDashboardFunnel, fetchDashboardFunnels, fetchSpreadsheetData, FunnelImportResult, updateDashboardFunnel, DashboardAdminUser, fetchAdminUsers, addAdminUser, removeAdminUser } from '../services/api';
 import { cn } from '../lib/utils';
 import { filterByDate, buildDateFilter, buildPreviousDateFilter, getPreviousPeriodLabel, calculateComparison, parseValue, formatCurrency, formatPercent, formatNumber, parseUtcToUtcMinus3 } from '../lib/metrics';
 import { useSortState } from '../lib/hooks';
@@ -21,6 +21,7 @@ const FunilTab = React.lazy(() => import('./tabs/FunilTab').then(({ FunilTab }) 
 const CriativosTab = React.lazy(() => import('./tabs/CriativosTab').then(({ CriativosTab }) => ({ default: CriativosTab })));
 const FontesTab = React.lazy(() => import('./tabs/FontesTab').then(({ FontesTab }) => ({ default: FontesTab })));
 const ProdutosTab = React.lazy(() => import('./tabs/ProdutosTab').then(({ ProdutosTab }) => ({ default: ProdutosTab })));
+const UsuariosTab = React.lazy(() => import('./tabs/UsuariosTab').then(({ UsuariosTab }) => ({ default: UsuariosTab })));
 const DEFAULT_DASHBOARD_FUNNELS: DashboardFunnel[] = [
   { id: 'estrategia', name: 'Livro Estratégia em Ação', sheetId: '', color: '#00FFBB', builtIn: true },
   { id: 'gestao-ia', name: 'Livro Gestão de Projetos com IA', sheetId: '', color: '#66BEFF', builtIn: true }
@@ -111,9 +112,8 @@ function getLabelForDateRange(range: string, custom: { start: string; end: strin
 interface DashboardProps {
   authUser?: AuthUser | null;
   onLogout?: () => void;
-  onOpenSecuritySettings?: () => void;
 }
-export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }: DashboardProps) {
+export default function Dashboard({ authUser, onLogout }: DashboardProps) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -177,6 +177,66 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
   const [editingFunnel, setEditingFunnel] = useState<DashboardFunnel | null>(null);
   const [funnelPendingDelete, setFunnelPendingDelete] = useState<DashboardFunnel | null>(null);
   const [isDeletingFunnel, setIsDeletingFunnel] = useState(false);
+  // Tela "Gerenciar Acessos" — deliberadamente fora da navegação por abas de
+  // funil (Geral/Funil/Criativos/...): é configuração de conta, não um jeito
+  // de olhar dado de performance, então vira uma view própria em tela
+  // cheia com "Voltar", não mais um item perdido na barra lateral.
+  const [view, setView] = useState<'dashboard' | 'usuarios'>('dashboard');
+  const [isAddUserFormOpen, setIsAddUserFormOpen] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<DashboardAdminUser[]>([]);
+  const [isLoadingAdminUsers, setIsLoadingAdminUsers] = useState(false);
+  const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'admin' | 'member'>('member');
+  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [removingUserEmail, setRemovingUserEmail] = useState<string | null>(null);
+
+  const loadAdminUsers = () => {
+    setIsLoadingAdminUsers(true);
+    setAdminUsersError(null);
+    fetchAdminUsers()
+      .then(setAdminUsers)
+      .catch((err) => setAdminUsersError(err.message))
+      .finally(() => setIsLoadingAdminUsers(false));
+  };
+
+  useEffect(() => {
+    if (view !== 'usuarios') return;
+    setIsAddUserFormOpen(false);
+    loadAdminUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
+  const handleAddUser = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const email = newUserEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) return;
+    setIsAddingUser(true);
+    try {
+      await addAdminUser(email, newUserRole);
+      setNewUserEmail('');
+      setNewUserRole('member');
+      setIsAddUserFormOpen(false);
+      loadAdminUsers();
+    } catch (err: any) {
+      setAdminUsersError(err.message);
+    } finally {
+      setIsAddingUser(false);
+    }
+  };
+
+  const handleRemoveUser = async (email: string) => {
+    setRemovingUserEmail(email);
+    try {
+      await removeAdminUser(email);
+      loadAdminUsers();
+    } catch (err: any) {
+      setAdminUsersError(err.message);
+    } finally {
+      setRemovingUserEmail(null);
+    }
+  };
+
   // Profile dropdown menu state, Date picker popover state, & Mobile Nav Tab Dropdown
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -1411,6 +1471,46 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
   }, [data]);
   const isPermissionError = Boolean(fetchError && /privada|permissão|compartilhar|acesso/i.test(fetchError));
   const hasInvalidCustomDateRange = Boolean(customDates.start && customDates.end && customDates.start > customDates.end);
+
+  if (view === 'usuarios') {
+    return (
+      <div className="dashboard-shell min-h-screen bg-[var(--bg)] text-[var(--text-primary)] font-sans">
+        <header className="bg-[var(--header-bg)]/90 backdrop-blur-xl border-b border-[var(--border-hairline)] px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3 sticky top-0 z-20 shadow-[0_12px_40px_rgba(0,0,0,0.24)]">
+          <div className="flex flex-col items-start select-none">
+            <img
+              src={theme === 'light' ? '/allevotech-logo-light.svg' : '/allevotech-logo.svg'}
+              alt="AllevoTech"
+              className="h-9 sm:h-10 w-auto object-contain"
+            />
+            <span className="mt-0.5 pl-0.5 text-xs font-semibold text-[var(--text-muted)]">Gerenciar Acessos</span>
+          </div>
+          <Button variant="secondary" size="sm" className="min-h-10 gap-1.5" onClick={() => setView('dashboard')}>
+            <ArrowLeft size={16} /> Voltar ao dashboard
+          </Button>
+        </header>
+        <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <React.Suspense fallback={<PanelLoadingState />}>
+            <UsuariosTab
+              adminUsers={adminUsers}
+              isLoadingAdminUsers={isLoadingAdminUsers}
+              adminUsersError={adminUsersError}
+              isAddUserFormOpen={isAddUserFormOpen}
+              setIsAddUserFormOpen={setIsAddUserFormOpen}
+              newUserEmail={newUserEmail}
+              setNewUserEmail={setNewUserEmail}
+              newUserRole={newUserRole}
+              setNewUserRole={setNewUserRole}
+              isAddingUser={isAddingUser}
+              handleAddUser={handleAddUser}
+              removingUserEmail={removingUserEmail}
+              handleRemoveUser={handleRemoveUser}
+            />
+          </React.Suspense>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-shell min-h-screen bg-[var(--bg)] text-[var(--text-primary)] font-sans pb-24 selection:bg-[var(--brand-strategy)]/30 selection:text-[var(--brand-strategy-ink)]">
       {/* HEADER */}
@@ -1476,12 +1576,12 @@ export default function Dashboard({ authUser, onLogout, onOpenSecuritySettings }
                     <div className="h-px bg-[var(--border-hairline)] my-2" />
                     {/* Actions */}
                     <div className="space-y-1">
-                      {onOpenSecuritySettings && (
+                      {authUser.role === 'admin' && (
                         <button
                           role="menuitem"
                           onClick={() => {
                             setIsProfileMenuOpen(false);
-                            onOpenSecuritySettings();
+                            setView('usuarios');
                           }}
                           className="min-h-11 w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-control)] hover:bg-[var(--surface-3)] text-[var(--text-primary)] hover:text-[var(--brand-strategy-ink)] text-xs font-bold transition-colors text-left"
                         >

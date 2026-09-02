@@ -143,3 +143,54 @@ export async function deleteDashboardFunnel(id: string): Promise<void> {
     throw new Error(payload.error || `Não foi possível remover o funil (HTTP ${response.status}).`);
   }
 }
+
+export interface DashboardMe {
+  email: string;
+  role: 'admin' | 'member';
+  googleLoginEnabled: boolean;
+}
+
+export async function fetchMe(): Promise<DashboardMe> {
+  const response = await fetch('/api/me', { cache: 'no-store' });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.email) {
+    throw new Error(payload.error || 'Não foi possível identificar o usuário logado.');
+  }
+  return payload;
+}
+
+export interface DashboardAdminUser {
+  email: string;
+  role: 'admin' | 'member';
+  added_by: string;
+  created_at: string;
+}
+
+export async function fetchAdminUsers(): Promise<DashboardAdminUser[]> {
+  const response = await fetch('/api/admin/users', { cache: 'no-store' });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(payload.users)) {
+    throw new Error(payload.error || 'Não foi possível carregar os usuários.');
+  }
+  return payload.users;
+}
+
+export async function addAdminUser(email: string, role: 'admin' | 'member'): Promise<void> {
+  const response = await fetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, role })
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `Não foi possível adicionar o usuário (HTTP ${response.status}).`);
+  }
+}
+
+export async function removeAdminUser(email: string): Promise<void> {
+  const response = await fetch(`/api/admin/users/${encodeURIComponent(email)}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `Não foi possível remover o usuário (HTTP ${response.status}).`);
+  }
+}

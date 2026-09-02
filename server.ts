@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import path from "path";
+import crypto from "crypto";
 import { promises as fs } from "fs";
 import { createServer as createViteServer } from "vite";
 import Papa from "papaparse";
@@ -17,6 +18,54 @@ function timingSafeEqual(a: string, b: string) {
     diff |= aBytes[i] ^ bBytes[i];
   }
   return diff === 0;
+}
+
+// Sessão de login humano (Google OAuth) — cookie assinado com HMAC, sem
+// dependência de session store: {email, exp} em base64url + assinatura,
+// verificada em toda request. Basic Auth continua existindo em paralelo
+// pra automação/scripts, essa sessão só cobre o login via navegador.
+function signSession(email: string): string {
+  const secret = process.env.SESSION_SECRET || "";
+  const payload = JSON.stringify({ email, exp: Date.now() + 30 * 24 * 60 * 60 * 1000 });
+  const payloadB64 = Buffer.from(payload).toString("base64url");
+  const sig = crypto.createHmac("sha256", secret).update(payloadB64).digest("base64url");
+  return `${payloadB64}.${sig}`;
+}
+
+function verifySession(cookieValue: string): { email: string } | null {
+  const secret = process.env.SESSION_SECRET || "";
+  if (!secret || !cookieValue) return null;
+  const [payloadB64, sig] = cookieValue.split(".");
+  if (!payloadB64 || !sig) return null;
+  const expectedSig = crypto.createHmac("sha256", secret).update(payloadB64).digest("base64url");
+  if (!timingSafeEqual(sig, expectedSig)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+    if (typeof payload.exp !== "number" || payload.exp < Date.now()) return null;
+    if (typeof payload.email !== "string" || !payload.email) return null;
+    return { email: payload.email };
+  } catch {
+    return null;
+  }
+}
+
+function parseCookies(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const val = part.slice(idx + 1).trim();
+    if (key) {
+      try {
+        out[key] = decodeURIComponent(val);
+      } catch {
+        out[key] = val;
+      }
+    }
+  }
+  return out;
 }
 
 function parseList(value?: string) {
@@ -562,6 +611,143 @@ function registerIngestRoutes(app: express.Express) {
   });
 }
 
+let googleOAuthClientPromise: Promise<any> | null = null;
+async function googleOAuthClient() {
+  if (!googleOAuthClientPromise) {
+    googleOAuthClientPromise = import("google-auth-library").then(
+      (mod) => new mod.OAuth2Client(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET)
+    );
+  }
+  return googleOAuthClientPromise;
+}
+
+function loginPageHtml(errorMessage?: string): string {
+  const errorBlock = errorMessage
+    ? `<p style="color:#ff8a8a;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);border-radius:8px;padding:10px 14px;margin:0 0 20px;font-size:14px;">${errorMessage}</p>`
+    : "";
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Entrar — Allevo Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#0b0f14; color:#e7edf3; font-family:ui-sans-serif,system-ui,sans-serif; }
+  .card { background:#121820; border:1px solid rgba(148,163,184,.16); border-radius:14px; padding:40px; width:340px; text-align:center; }
+  h1 { font-size:1.3rem; margin:0 0 8px; }
+  p.sub { color:#8ca0b3; font-size:14px; margin:0 0 26px; }
+  a.btn { display:flex; align-items:center; justify-content:center; gap:10px; background:#fff; color:#1f1f1f; text-decoration:none; padding:11px 16px; border-radius:8px; font-weight:600; font-size:14px; }
+  a.btn:hover { background:#f1f1f1; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Allevo Dashboard</h1>
+    <p class="sub">Entre com sua conta Google corporativa</p>
+    ${errorBlock}
+    <a class="btn" href="/auth/google">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.6 32.9 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.4 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.7 19 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.4 5.1 29.5 3 24 3c-7.6 0-14.1 4.3-17.7 10.7z"/><path fill="#4CAF50" d="M24 45c5.3 0 10.1-1.8 13.8-4.9l-6.4-5.4C29.3 36.4 26.8 37 24 37c-5.2 0-9.6-3.1-11.3-7.6l-6.5 5C9.8 40.6 16.3 45 24 45z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.3 5.6l6.4 5.4C41 35.8 45 30.4 45 24c0-1.2-.1-2.4-.4-3.5z"/></svg>
+      Entrar com Google
+    </a>
+  </div>
+</body>
+</html>`;
+}
+
+function registerAuthRoutes(app: express.Express) {
+  app.get("/login", (_req, res) => {
+    res.type("html").send(loginPageHtml());
+  });
+
+  app.get("/auth/google", async (req, res) => {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(503).type("html").send(loginPageHtml("Login com Google não está configurado."));
+    }
+    try {
+      const client = await googleOAuthClient();
+      const redirectUri = `${req.protocol}://${req.get("host")}/auth/google/callback`;
+      const state = crypto.randomBytes(16).toString("hex");
+      res.cookie("oauth_state", state, { httpOnly: true, secure: true, sameSite: "lax", maxAge: 10 * 60 * 1000 });
+      const url = client.generateAuthUrl({
+        redirect_uri: redirectUri,
+        scope: ["openid", "email", "profile"],
+        state,
+        prompt: "select_account"
+      });
+      res.redirect(url);
+    } catch (error: any) {
+      console.error("Erro ao iniciar login com Google:", error);
+      res.status(500).type("html").send(loginPageHtml("Falha ao iniciar login com Google. Tente de novo."));
+    }
+  });
+
+  app.get("/auth/google/callback", async (req, res) => {
+    try {
+      if (!process.env.GOOGLE_CLIENT_ID) {
+        return res.status(503).type("html").send(loginPageHtml("Login com Google não está configurado."));
+      }
+      const cookies = parseCookies(req.headers.cookie);
+      const expectedState = cookies["oauth_state"];
+      const code = req.query.code as string;
+      const state = req.query.state as string;
+      if (!code || !state || !expectedState || state !== expectedState) {
+        return res.status(400).type("html").send(loginPageHtml("Falha na autenticação (sessão de login expirada). Tente de novo."));
+      }
+      res.clearCookie("oauth_state");
+
+      const client = await googleOAuthClient();
+      const redirectUri = `${req.protocol}://${req.get("host")}/auth/google/callback`;
+      const { tokens } = await client.getToken({ code, redirect_uri: redirectUri });
+      const ticket = await client.verifyIdToken({ idToken: tokens.id_token, audience: process.env.GOOGLE_CLIENT_ID });
+      const payload = ticket.getPayload();
+      const email = String(payload?.email || "").toLowerCase().trim();
+
+      if (!email || !payload?.email_verified) {
+        return res.status(401).type("html").send(loginPageHtml("Não foi possível confirmar seu e-mail com o Google."));
+      }
+      if (!DATABASE_URL) {
+        return res.status(503).type("html").send(loginPageHtml("Login com Google requer o banco de dados configurado no servidor."));
+      }
+
+      const pool = await pgPool();
+      const { rows } = await pool.query("SELECT role FROM users WHERE email = $1", [email]);
+      if (!rows[0]) {
+        return res.status(403).type("html").send(loginPageHtml(`O e-mail ${email} ainda não foi liberado. Peça pra um administrador te adicionar.`));
+      }
+
+      res.cookie("allevo_session", signSession(email), {
+        httpOnly: true, secure: true, sameSite: "lax", maxAge: 30 * 24 * 60 * 60 * 1000
+      });
+      res.redirect("/");
+    } catch (error: any) {
+      console.error("Erro no callback do Google OAuth:", error);
+      res.status(500).type("html").send(loginPageHtml("Erro ao processar login com Google. Tente de novo."));
+    }
+  });
+
+  app.get("/auth/logout", (_req, res) => {
+    res.clearCookie("allevo_session");
+    res.redirect("/login");
+  });
+
+  // Login sem passar pelo Google, só pra testar a tela localmente enquanto
+  // a redirect URI do Google propaga (leva minutos a horas depois de salva
+  // no Console). Mesma trava que requireDashboardAdmin já usa: nunca
+  // funciona onde NODE_ENV=production (VPS e AWS sempre setam isso).
+  if (process.env.NODE_ENV !== "production") {
+    app.get("/auth/dev-login", (req, res) => {
+      const email = String(req.query.email || "").toLowerCase().trim();
+      if (!email || !email.includes("@")) {
+        return res.status(400).send("Uso: /auth/dev-login?email=voce@allevotech.com");
+      }
+      res.cookie("allevo_session", signSession(email), {
+        httpOnly: true, secure: false, sameSite: "lax", maxAge: 30 * 24 * 60 * 60 * 1000
+      });
+      res.redirect("/");
+    });
+  }
+}
+
       const getField = (item: any, ...keys: string[]) => {
         for (const k of keys) {
           if (item[k] !== undefined && item[k] !== null && String(item[k]).trim() !== '') {
@@ -892,19 +1078,71 @@ function dashboardAdminEmail(req: express.Request) {
   return String(req.res?.locals.dashboardUser || "").trim().toLowerCase();
 }
 
-function requireDashboardAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+async function requireDashboardAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const email = dashboardAdminEmail(req);
+  // Tabela users (login via Google) manda quando existe — fallback pro env
+  // var é só pra ambiente sem Postgres (AWS hoje) ou login via Basic Auth.
+  if (DATABASE_URL && email) {
+    try {
+      const pool = await pgPool();
+      const { rows } = await pool.query("SELECT role FROM users WHERE email = $1", [email]);
+      if (rows[0]?.role === "admin") return next();
+    } catch (err) {
+      console.error("requireDashboardAdmin: falha ao consultar tabela users, caindo pro fallback de env var:", err);
+    }
+  }
   const configuredAdmins = parseList(process.env.DASHBOARD_ADMIN_EMAILS);
   if (configuredAdmins.length === 0) {
     if (process.env.NODE_ENV !== "production") return next();
     return res.status(503).json({ error: "Cadastro de funis ainda não está habilitado. Configure DASHBOARD_ADMIN_EMAILS no servidor." });
   }
-  if (!configuredAdmins.includes(dashboardAdminEmail(req))) {
-    return res.status(403).json({ error: "Somente administradores podem adicionar funis." });
+  if (!configuredAdmins.includes(email)) {
+    return res.status(403).json({ error: "Somente administradores podem fazer essa ação." });
   }
   next();
 }
 
-function requireDashboardAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+async function requireDashboardAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.SESSION_SECRET);
+
+  // Sessão do Google (cookie assinado) tem prioridade — se válida, nem olha
+  // pro Basic Auth. Basic Auth continua funcionando em paralelo pra
+  // automação/scripts que já usam DASHBOARD_USER/DASHBOARD_PASSWORD.
+  if (googleEnabled) {
+    const cookies = parseCookies(req.headers.cookie);
+    const session = verifySession(cookies["allevo_session"] || "");
+    if (session) {
+      // Confere na tabela a cada request (não só no login) — senão remover
+      // alguém não tira o acesso até o cookie expirar sozinho em 30 dias.
+      // Falha de DB não derruba quem já tinha cookie válido (defesa em
+      // profundidade, não a única barreira).
+      let stillAllowed = true;
+      if (DATABASE_URL) {
+        try {
+          const pool = await pgPool();
+          const { rows } = await pool.query("SELECT 1 FROM users WHERE email = $1", [session.email]);
+          // DASHBOARD_ADMIN_EMAILS é acesso de emergência (só muda via
+          // redeploy) — sempre passa, mesmo se a tabela estiver vazia ou
+          // ainda não tiver esse e-mail. Resolve o bootstrap: sem isso,
+          // ninguém consegue entrar a primeira vez pra popular a tabela.
+          stillAllowed = Boolean(rows[0]) || parseList(process.env.DASHBOARD_ADMIN_EMAILS).includes(session.email);
+        } catch (err) {
+          console.error("requireDashboardAuth: falha ao validar sessão contra tabela users, mantendo acesso:", err);
+        }
+      }
+      if (stillAllowed) {
+        res.locals.dashboardUser = session.email;
+        return next();
+      }
+      res.clearCookie("allevo_session");
+      const looksLikeBrowserPageLoad = req.method === "GET" && !req.path.startsWith("/api/") && (req.headers.accept || "").includes("text/html");
+      if (looksLikeBrowserPageLoad) {
+        return res.redirect(302, "/login");
+      }
+      return res.status(401).json({ error: "Sua sessão expirou ou seu acesso foi removido." });
+    }
+  }
+
   const expectedUser = process.env.DASHBOARD_USER;
   const expectedPassword = process.env.DASHBOARD_PASSWORD;
   const hasDomainRules = Boolean(process.env.DASHBOARD_ALLOWED_DOMAINS || process.env.DASHBOARD_ALLOWED_EMAILS);
@@ -917,6 +1155,14 @@ function requireDashboardAuth(req: express.Request, res: express.Response, next:
   const [scheme, encoded] = authHeader.split(" ");
 
   if (scheme !== "Basic" || !encoded) {
+    // Requisição de navegador sem nenhuma credencial: manda pro login com
+    // Google (melhor UX que o popup nativo do Basic Auth) em vez de 401.
+    // Chamada de API/automação (sem Accept: text/html, ou sob /api/) segue
+    // recebendo o 401 de sempre, sem quebrar nada existente.
+    const looksLikeBrowserPageLoad = req.method === "GET" && !req.path.startsWith("/api/") && (req.headers.accept || "").includes("text/html");
+    if (googleEnabled && looksLikeBrowserPageLoad) {
+      return res.redirect(302, "/login");
+    }
     res.setHeader("WWW-Authenticate", 'Basic realm="AllevoTech Dashboard"');
     return res.status(401).send("Login obrigatório");
   }
@@ -1478,6 +1724,10 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Atrás do Traefik (TLS termina lá) — sem isso req.protocol sempre vem
+  // "http", quebrando a redirect_uri do Google OAuth (que exige https).
+  app.set("trust proxy", 1);
+
   app.use(express.json({ limit: "1mb" }));
 
   // Health check para as probes do Kubernetes. Precisa ficar antes de
@@ -1491,6 +1741,11 @@ async function startServer() {
   // Basic Auth (quem chama é uma automação, não uma pessoa no navegador), por
   // isso fica registrada antes de requireDashboardAuth, igual /healthz.
   registerIngestRoutes(app);
+
+  // Login (/login, /auth/google, /auth/google/callback, /auth/logout)
+  // também fica antes do requireDashboardAuth — sem isso ninguém consegue
+  // nem chegar na tela de login.
+  registerAuthRoutes(app);
 
   app.use(requireDashboardAuth);
 
@@ -1529,6 +1784,80 @@ async function startServer() {
       res.send(Buffer.from(buffer));
     } catch (err: any) {
       res.status(500).send(err.message || "Erro no proxy de imagem");
+    }
+  });
+
+  // Identidade de quem está logado (Google OAuth ou Basic Auth) + se é
+  // admin — o frontend usa isso pra mostrar/esconder a tela de gerenciar
+  // usuários.
+  app.get("/api/me", async (req, res) => {
+    const email = dashboardAdminEmail(req);
+    let role = "member";
+    if (DATABASE_URL && email) {
+      try {
+        const pool = await pgPool();
+        const { rows } = await pool.query("SELECT role FROM users WHERE email = $1", [email]);
+        if (rows[0]) role = rows[0].role;
+      } catch (err) {
+        console.error("/api/me: falha ao consultar tabela users:", err);
+      }
+    }
+    if (role !== "admin") {
+      const configuredAdmins = parseList(process.env.DASHBOARD_ADMIN_EMAILS);
+      if (configuredAdmins.includes(email)) role = "admin";
+    }
+    res.json({ email, role, googleLoginEnabled: Boolean(process.env.GOOGLE_CLIENT_ID) });
+  });
+
+  // Gerenciar quem pode logar via Google — só admin. Requer Postgres (a
+  // tabela users só existe lá); em ambiente sem DATABASE_URL (AWS hoje)
+  // essas rotas respondem 503, e o login continua sendo só Basic Auth.
+  app.get("/api/admin/users", requireDashboardAdmin, async (_req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Gerenciar usuários requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const pool = await pgPool();
+      const { rows } = await pool.query("SELECT email, role, added_by, created_at FROM users ORDER BY created_at");
+      res.json({ users: rows });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Falha ao listar usuários." });
+    }
+  });
+
+  app.post("/api/admin/users", requireDashboardAdmin, async (req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Gerenciar usuários requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const email = String(req.body?.email || "").toLowerCase().trim();
+      const role = req.body?.role === "admin" ? "admin" : "member";
+      if (!email || !email.includes("@")) {
+        return res.status(400).json({ error: "E-mail inválido." });
+      }
+      const pool = await pgPool();
+      await pool.query(
+        `INSERT INTO users (email, role, added_by) VALUES ($1,$2,$3)
+         ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role`,
+        [email, role, dashboardAdminEmail(req)]
+      );
+      res.json({ ok: true, email, role });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Falha ao adicionar usuário." });
+    }
+  });
+
+  app.delete("/api/admin/users/:email", requireDashboardAdmin, async (req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Gerenciar usuários requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const email = decodeURIComponent(req.params.email).toLowerCase().trim();
+      const pool = await pgPool();
+      await pool.query("DELETE FROM users WHERE email = $1", [email]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Falha ao remover usuário." });
     }
   });
 

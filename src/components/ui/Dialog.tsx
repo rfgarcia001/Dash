@@ -28,6 +28,12 @@ export function Dialog({
 }: DialogProps) {
   const panelRef = useRef<HTMLElement | null>(null);
 
+  // Focus-on-open/restore-on-close: deliberately keyed only on `open`, not
+  // on `onClose`/`initialFocusRef`. Callers routinely pass an inline arrow
+  // for onClose, which gets a new reference on every parent re-render —
+  // keying this effect on it meant every keystroke in a form inside the
+  // dialog (which re-renders the parent) re-ran this effect and stole focus
+  // back to the first focusable element (the close button) mid-typing.
   useEffect(() => {
     if (!open) return;
 
@@ -35,6 +41,19 @@ export function Dialog({
     const frame = window.requestAnimationFrame(() => {
       (initialFocusRef?.current ?? panelRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR))?.focus();
     });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      previousFocus?.focus();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Keydown handling (Escape + focus trap) can safely re-subscribe with a
+  // fresh onClose on every render — that's just swapping a listener, not
+  // touching focus.
+  useEffect(() => {
+    if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -57,12 +76,8 @@ export function Dialog({
     };
 
     document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener('keydown', handleKeyDown);
-      previousFocus?.focus();
-    };
-  }, [open, onClose, initialFocusRef]);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 

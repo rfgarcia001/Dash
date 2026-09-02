@@ -77,3 +77,15 @@ WHERE a.funnel_id = b.funnel_id AND a.creative_name = b.creative_name AND a.id <
 -- em rodadas anteriores — mesmo comportamento do "Append or Update" por
 -- "Nome Criativo" que a planilha já fazia.
 CREATE UNIQUE INDEX IF NOT EXISTS creatives_funnel_name_uidx ON creatives (funnel_id, creative_name);
+
+-- Login via Google OAuth (ver GOOGLE_CLIENT_ID em server.ts): quem pode
+-- entrar no dashboard, gerenciado pela tela de admin (não mais editando
+-- DASHBOARD_ALLOWED_EMAILS/DOMAINS na mão). Basic Auth continua existindo em
+-- paralelo pra automação/scripts — essa tabela só afeta o login humano via
+-- Google.
+CREATE TABLE IF NOT EXISTS users (
+  email TEXT PRIMARY KEY,
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+  added_by TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
