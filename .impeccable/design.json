@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-02T00:00:00.000Z",
+  "title": "Design System: Allevo Dashboard",
+  "extensions": {
+    "colorMeta": {
+      "signal-teal": { "role": "primary", "displayName": "Signal Teal", "canonical": "#00FFBB", "tonalRamp": ["#061814", "#0A3A2E", "#0F5C46", "#137E5E", "#18A076", "#1CC28E", "#45FFD0", "#00FFBB"] },
+      "brand-management": { "role": "secondary", "displayName": "Brand Management Blue", "canonical": "#66BEFF", "tonalRamp": ["#0A1A26", "#123249", "#1A4A6C", "#22628F", "#2A7AB2", "#4499D6", "#66BEFF", "#A3D8FF"] },
+      "accent-purple": { "role": "tertiary", "displayName": "Accent Purple", "canonical": "#A855F7", "tonalRamp": ["#1E1029", "#3A1F4D", "#562E72", "#723D96", "#8E4CBB", "#A855F7", "#C489FA", "#D8B4FE"] },
+      "bg": { "role": "neutral", "displayName": "Canvas", "canonical": "#0F1115", "tonalRamp": ["#0F1115", "#151922", "#1C2230", "#263041", "#334155", "#4B5A72", "#8290A5", "#B6C1D2"] },
+      "status-positive": { "role": "semantic", "displayName": "Status Positive", "canonical": "#00E5A8" },
+      "status-negative": { "role": "semantic", "displayName": "Status Negative", "canonical": "#F43F5E" },
+      "status-warning": { "role": "semantic", "displayName": "Status Warning", "canonical": "#F59E0B" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Page-level headings." },
+      "metric-hero": { "displayName": "Metric Hero", "purpose": "Primary 4-up metric-card row value." },
+      "metric-compact": { "displayName": "Metric Compact", "purpose": "Secondary compact metric-card row value." },
+      "subtext": { "displayName": "Subtext", "purpose": "Supporting text under a metric value or heading." },
+      "label": { "displayName": "Label", "purpose": "Metric titles, form labels, table headings, comparison deltas." },
+      "meta": { "displayName": "Meta", "purpose": "Secondary form hints and tighter supporting copy." },
+      "caption": { "displayName": "Caption", "purpose": "Timestamps, footnotes, added-by lines." },
+      "badge": { "displayName": "Badge", "purpose": "Status pills and small badges." },
+      "micro": { "displayName": "Micro", "purpose": "Densest inline tags, label-only." },
+      "body": { "displayName": "Body", "purpose": "Default reading text and table content." }
+    },
+    "shadows": [
+      { "name": "elevation-1", "value": "0 16px 42px rgba(0,0,0,0.22)", "purpose": "Metric cards and small panels at rest." },
+      { "name": "elevation-2", "value": "0 18px 52px rgba(0,0,0,0.22)", "purpose": "Table panels and mid-size containers." },
+      { "name": "elevation-3", "value": "0 22px 70px rgba(0,0,0,0.28)", "purpose": "Modals and the top-level executive panel." }
+    ],
+    "motion": [
+      { "name": "motion-fast", "value": "120ms", "purpose": "Micro-interactions: hover, focus." },
+      { "name": "motion-base", "value": "180ms", "purpose": "Default state transitions." },
+      { "name": "motion-slow", "value": "260ms", "purpose": "Panel and modal entrances." },
+      { "name": "ease-standard", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Default easing for all transitions." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main call-to-action button, e.g. Confirmar, Adicionar pessoa.",
+      "html": "<button class=\"ds-btn-primary\">Confirmar</button>",
+      "css": ".ds-btn-primary { background: #00FFBB; color: #061814; padding: 10px 16px; border-radius: 8px; font-weight: 700; font-size: 14px; border: none; min-height: 44px; transition: background 180ms cubic-bezier(0.16,1,0.3,1); } .ds-btn-primary:hover { background: #45FFD0; } .ds-btn-primary:focus-visible { outline: 2px solid #66BEFF; outline-offset: 3px; } .ds-btn-primary:disabled { filter: saturate(0.65); cursor: not-allowed; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Lower-emphasis action, e.g. Cancelar.",
+      "html": "<button class=\"ds-btn-secondary\">Cancelar</button>",
+      "css": ".ds-btn-secondary { background: transparent; color: #B6C1D2; padding: 10px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; border: 1px solid rgba(148,163,184,0.34); min-height: 44px; transition: background 180ms; } .ds-btn-secondary:hover { background: rgba(255,255,255,0.065); color: #FFFFFF; }"
+    },
+    {
+      "name": "Metric Card",
+      "kind": "card",
+      "refersTo": "metric-card",
+      "description": "Hero KPI card used across the Geral tab.",
+      "html": "<div class=\"ds-metric-card\"><span class=\"ds-metric-title\">Faturamento Total</span><span class=\"ds-metric-value\">R$ 135.162,04</span><span class=\"ds-metric-comparison\">+12,4% vs. período anterior</span></div>",
+      "css": ".ds-metric-card { background: linear-gradient(180deg, rgba(24,29,39,0.98), rgba(18,22,30,0.98)); border: 1px solid rgba(148,163,184,0.32); border-radius: 12px; box-shadow: 0 16px 42px rgba(0,0,0,0.22); padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; transition: border-color 180ms, transform 180ms; } .ds-metric-card:hover { border-color: rgba(62,232,181,0.32); transform: translateY(-1px); } .ds-metric-card:focus-visible { border-color: #66BEFF; } .ds-metric-title { font-size: 0.8125rem; font-weight: 650; letter-spacing: 0.045em; color: #B6C1D2; } .ds-metric-value { font-size: clamp(1.5rem, 1.9vw, 2.125rem); font-weight: 700; color: #FFFFFF; font-variant-numeric: tabular-nums; } .ds-metric-comparison { font-size: 0.8125rem; color: #00E5A8; }"
+    },
+    {
+      "name": "Badge",
+      "kind": "chip",
+      "refersTo": "badge-brand",
+      "description": "Status/role pill, e.g. Admin, Colaborador.",
+      "html": "<span class=\"ds-badge\">Admin</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font-size: 0.625rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: rgba(0,255,187,0.12); color: #00FFBB; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "Standard form field, e.g. email input.",
+      "html": "<input class=\"ds-input\" type=\"email\" placeholder=\"pessoa@allevotech.com\" />",
+      "css": ".ds-input { min-height: 44px; width: 100%; border-radius: 8px; border: 1px solid rgba(148,163,184,0.16); background: rgba(0,0,0,0.2); padding: 0 12px; color: #FFFFFF; font-size: 14px; outline: none; transition: border-color 180ms; } .ds-input:focus { border-color: #00FFBB; } .ds-input::placeholder { color: #8290A5; }"
+    },
+    {
+      "name": "Modal Dialog",
+      "kind": "custom",
+      "refersTo": "dialog",
+      "description": "Focus-trapped overlay dialog used for confirmations and forms.",
+      "html": "<div class=\"ds-dialog-backdrop\"><div class=\"ds-dialog-panel\"><h2 class=\"ds-dialog-title\">Adicionar novo funil?</h2><p class=\"ds-dialog-body\">O dashboard vai validar a planilha e incluir o funil automaticamente.</p></div></div>",
+      "css": ".ds-dialog-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); } .ds-dialog-panel { width: 100%; max-width: 28rem; border-radius: 12px; border: 1px solid rgba(148,163,184,0.16); background: #151922; padding: 1.5rem; box-shadow: 0 22px 70px rgba(0,0,0,0.28); } .ds-dialog-title { font-size: 1.125rem; font-weight: 700; color: #FFFFFF; margin: 0; } .ds-dialog-body { margin-top: 0.5rem; font-size: 0.875rem; line-height: 1.6; color: #B6C1D2; }"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Primary navigation item in the collapsible left sidebar.",
+      "html": "<button class=\"ds-nav-item ds-nav-item--active\">Geral</button>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; font-size: 14px; font-weight: 600; color: #B6C1D2; background: transparent; transition: background 180ms, color 180ms; } .ds-nav-item:hover { background: rgba(255,255,255,0.065); color: #FFFFFF; } .ds-nav-item--active { background: rgba(102,190,255,0.14); border-color: rgba(102,190,255,0.3); color: #66BEFF; font-weight: 700; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Studio",
+    "overview": "Allevo Dashboard is a dark-canvas operational surface for tracking book-launch funnels: ad spend, revenue, ROAS, and creative performance, refreshed on a live cadence. The dark background is a deliberate editorial choice, not a technical default — it makes Signal Teal and the categorical chart palette read as considered accents against a calm, low-noise field, the way a studio dims the room to let the work under the light stand out. Density stays high (ten-plus metrics, sortable tables, per-funnel breakdowns) without feeling cluttered, because color and weight are spent sparingly and deliberately. Depth in this system is ambient, not structural: soft radial glows, layered panel gradients, and blurred shadows create atmosphere and make the dark canvas feel alive, but they never encode meaning on their own — state and hierarchy are carried by color, type weight, and position, not by how much a panel glows.",
+    "keyCharacteristics": [
+      "Dark-first canvas with a fully composed (not inverted) light theme",
+      "One primary accent (Signal Teal) used sparingly for action, selection, and positive state",
+      "An 8-hue, CVD-validated categorical palette for chart series, assigned by fixed position",
+      "Ambient depth (gradients, soft shadows, radial glows) rather than structural elevation",
+      "Tactile, confident components — soft gradient panels, glowing hover states, deliberate elevation on interactive surfaces"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Signal Teal is the only color that means \"primary action\" or \"positive.\" Selection state, secondary funnels, and tertiary accents each get their own hue so no two meanings compete for the same color.", "section": "colors" },
+      { "name": "The One Voice Rule", "body": "No second type family. Instrument Sans carries display, body, and mono/data roles alike — hierarchy comes from size, weight, and tracking, not from switching faces.", "section": "typography" },
+      { "name": "The Ambient Rule", "body": "Gradients, glows, and shadow are mood, not meaning. They make the dark canvas feel alive; state and hierarchy are always carried by color, weight, or position instead.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do reserve Signal Teal for primary action, selection, and positive state — nothing else uses it.",
+      "Do use the --status-* semantic tokens for any positive/negative/warning text or background, never a raw Tailwind palette class.",
+      "Do keep interactive touch targets at a 44×44px minimum, matching the rest of the sidebar and table controls.",
+      "Do assign chart-series colors by fixed position in the palette array, never by name-matching."
+    ],
+    "donts": [
+      "Don't introduce a second type family; Instrument Sans carries every role, including tabular data.",
+      "Don't use a colored border-left/border-right as an emphasis pattern on cards or callouts — use a tinted background wash instead.",
+      "Don't let ambient depth (gradients, glows, shadow) carry state meaning; state comes from color, weight, and position.",
+      "Don't invert the dark theme mechanically for light mode — light mode is composed with its own contrast-checked ink tokens, not a filter over the dark palette."
+    ]
+  }
+}

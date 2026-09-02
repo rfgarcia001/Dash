@@ -623,7 +623,7 @@ async function googleOAuthClient() {
 
 function loginPageHtml(errorMessage?: string): string {
   const errorBlock = errorMessage
-    ? `<p style="color:#ff8a8a;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);border-radius:8px;padding:10px 14px;margin:0 0 20px;font-size:14px;">${errorMessage}</p>`
+    ? `<p class="error" role="alert">${errorMessage}</p>`
     : "";
   return `<!doctype html>
 <html lang="pt-BR">
@@ -631,24 +631,67 @@ function loginPageHtml(errorMessage?: string): string {
 <meta charset="utf-8" />
 <title>Entrar — Allevo Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark light" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&display=swap" rel="stylesheet">
 <style>
-  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#0b0f14; color:#e7edf3; font-family:ui-sans-serif,system-ui,sans-serif; }
-  .card { background:#121820; border:1px solid rgba(148,163,184,.16); border-radius:14px; padding:40px; width:340px; text-align:center; }
-  h1 { font-size:1.3rem; margin:0 0 8px; }
-  p.sub { color:#8ca0b3; font-size:14px; margin:0 0 26px; }
-  a.btn { display:flex; align-items:center; justify-content:center; gap:10px; background:#fff; color:#1f1f1f; text-decoration:none; padding:11px 16px; border-radius:8px; font-weight:600; font-size:14px; }
-  a.btn:hover { background:#f1f1f1; }
+  :root {
+    --bg: #0F1115;
+    --panel: #151922;
+    --text-primary: #FFFFFF;
+    --text-muted: #B6C1D2;
+    --border: rgba(148, 163, 184, 0.16);
+    --brand: #00FFBB;
+    --brand-ink: #0F1115;
+    --status-negative: #F43F5E;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #F5F6F8;
+      --panel: #FFFFFF;
+      --text-primary: #12151C;
+      --text-muted: #4B5566;
+      --border: rgba(15, 23, 42, 0.24);
+      --brand: #007A5E;
+      --brand-ink: #FFFFFF;
+      --status-negative: #C81E3F;
+    }
+    img.logo-dark { display: none; }
+  }
+  @media (prefers-color-scheme: dark), (prefers-color-scheme: no-preference) {
+    img.logo-light { display: none; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text-primary);
+    font-family: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 24px;
+  }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 40px; width: 380px; max-width: 100%; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.28); }
+  .logo { height: 34px; width: auto; margin: 0 auto 22px; display: block; }
+  h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.01em; }
+  p.sub { color: var(--text-muted); font-size: 14px; line-height: 1.55; margin: 0 0 24px; }
+  .error { color: var(--status-negative); background: color-mix(in srgb, var(--status-negative) 10%, transparent); border: 1px solid color-mix(in srgb, var(--status-negative) 30%, transparent); border-radius: 10px; padding: 10px 14px; margin: 0 0 20px; font-size: 13px; text-align: left; }
+  a.btn { display: flex; align-items: center; justify-content: center; gap: 10px; background: #fff; color: #1f1f1f; text-decoration: none; padding: 12px 16px; border-radius: 10px; font-weight: 600; font-size: 14px; border: 1px solid rgba(15,23,42,0.14); box-shadow: 0 1px 2px rgba(0,0,0,0.08); transition: background 0.12s ease; }
+  a.btn:hover { background: #f1f1f1; }
+  .footnote { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12.5px; line-height: 1.6; }
+  .footnote b { color: var(--text-primary); }
 </style>
 </head>
 <body>
   <div class="card">
-    <h1>Allevo Dashboard</h1>
-    <p class="sub">Entre com sua conta Google corporativa</p>
+    <img class="logo logo-dark" src="/allevotech-logo.svg" alt="AllevoTech" />
+    <img class="logo logo-light" src="/allevotech-logo-light.svg" alt="AllevoTech" />
+    <h1>Dashboard de performance</h1>
+    <p class="sub">Entre com sua conta Google corporativa (@allevotech.com ou @redealumni.com) pra ver os funis de anúncios e vendas.</p>
     ${errorBlock}
     <a class="btn" href="/auth/google">
       <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.6 32.9 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.4 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.7 19 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.4 5.1 29.5 3 24 3c-7.6 0-14.1 4.3-17.7 10.7z"/><path fill="#4CAF50" d="M24 45c5.3 0 10.1-1.8 13.8-4.9l-6.4-5.4C29.3 36.4 26.8 37 24 37c-5.2 0-9.6-3.1-11.3-7.6l-6.5 5C9.8 40.6 16.3 45 24 45z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.3 5.6l6.4 5.4C41 35.8 45 30.4 45 24c0-1.2-.1-2.4-.4-3.5z"/></svg>
       Entrar com Google
     </a>
+    <p class="footnote">Seu acesso precisa ser liberado antes do primeiro login. Se ainda não tem, peça pra um <b>administrador</b> te adicionar em "Gerenciar Acessos".</p>
   </div>
 </body>
 </html>`;
@@ -1739,6 +1782,17 @@ async function startServer() {
   // e o pod nunca ficaria Ready.
   app.get("/healthz", (_req, res) => {
     res.status(200).json({ status: "ok", version: process.env.APP_VERSION || "dev" });
+  });
+
+  // A tela de /login roda sem sessão nenhuma — sem isso, a própria logo
+  // dela toma 401 (o resto dos assets estáticos só é servido depois do
+  // requireDashboardAuth). `public/` em dev, `dist/` em prod (Vite copia
+  // o conteúdo de public/ pra raiz do dist no build).
+  app.get("/:asset(allevotech-logo.svg|allevotech-logo-light.svg|favicon.svg)", (req, res) => {
+    const dir = process.env.NODE_ENV === "production" ? "dist" : "public";
+    res.sendFile(path.join(process.cwd(), dir, req.params.asset), (err) => {
+      if (err) res.status(404).end();
+    });
   });
 
   // Ingestão via automação externa (N8N): autentica por token próprio, não por

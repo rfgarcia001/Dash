@@ -175,6 +175,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
   // needs as funnel_id when writing rows straight into Postgres.
   const [createdFunnel, setCreatedFunnel] = useState<DashboardFunnel | null>(null);
   const [createdFunnelImport, setCreatedFunnelImport] = useState<{ result?: FunnelImportResult; error?: string } | null>(null);
+  const [funnelIdCopyState, setFunnelIdCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const [editingFunnel, setEditingFunnel] = useState<DashboardFunnel | null>(null);
   const [funnelPendingDelete, setFunnelPendingDelete] = useState<DashboardFunnel | null>(null);
   const [isDeletingFunnel, setIsDeletingFunnel] = useState(false);
@@ -364,6 +365,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
     setNewFunnelError(null);
     setCreatedFunnel(null);
     setCreatedFunnelImport(null);
+    setFunnelIdCopyState('idle');
   };
   const handleSaveFunnel = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1483,10 +1485,10 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
               alt="AllevoTech"
               className="h-9 sm:h-10 w-auto object-contain"
             />
-            <span className="mt-0.5 pl-0.5 text-xs font-semibold text-[var(--text-muted)]">Gerenciar Acessos</span>
+            <span className="mt-0.5 pl-0.5 text-xs font-semibold text-[var(--text-muted)]">Dashboard de performance</span>
           </div>
-          <Button variant="secondary" size="sm" className="min-h-10 gap-1.5" onClick={() => setView('dashboard')}>
-            <ArrowLeft size={16} /> Voltar ao dashboard
+          <Button variant="secondary" size="sm" className="min-h-10 gap-1.5 shrink-0" onClick={() => setView('dashboard')}>
+            <ArrowLeft size={16} /> <span className="hidden sm:inline">Voltar ao dashboard</span><span className="sm:hidden">Voltar</span>
           </Button>
         </header>
         <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1600,9 +1602,9 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                             setIsProfileMenuOpen(false);
                             onLogout();
                           }}
-                          className="min-h-11 w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-control)] hover:bg-rose-500/10 text-rose-400 hover:text-rose-300 text-xs font-bold transition-colors text-left mt-1"
+                          className="min-h-11 w-full flex items-center gap-2.5 px-3 py-2 rounded-[var(--radius-control)] hover:bg-[var(--status-negative)]/10 text-[var(--status-negative)] hover:brightness-110 text-xs font-bold transition-colors text-left mt-1"
                         >
-                          <LogOut size={15} className="text-rose-400" />
+                          <LogOut size={15} className="text-[var(--status-negative)]" />
                           <span>Sair da Conta</span>
                         </button>
                       )}
@@ -1664,7 +1666,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                           <button type="button" role="menuitem" onClick={() => openFunnelEditor(funnel)} title={`Editar ${funnel.name}`} aria-label={`Editar ${funnel.name}`} className="min-w-11 min-h-11 shrink-0 inline-flex items-center justify-center rounded-[6px] text-[var(--text-muted)] hover:bg-[var(--hover-wash-strong)] hover:text-[var(--text-primary)]">
                             <Pencil size={14} />
                           </button>
-                          <button type="button" role="menuitem" onClick={() => { setIsFunnelMenuOpen(false); setFunnelPendingDelete(funnel); }} title={`Remover ${funnel.name}`} aria-label={`Remover ${funnel.name}`} className="min-w-11 min-h-11 shrink-0 inline-flex items-center justify-center rounded-[6px] text-rose-300 hover:bg-rose-500/15 hover:text-rose-100">
+                          <button type="button" role="menuitem" onClick={() => { setIsFunnelMenuOpen(false); setFunnelPendingDelete(funnel); }} title={`Remover ${funnel.name}`} aria-label={`Remover ${funnel.name}`} className="min-w-11 min-h-11 shrink-0 inline-flex items-center justify-center rounded-[6px] text-[var(--status-negative)] hover:bg-[var(--status-negative)]/15 hover:brightness-110">
                             <Trash2 size={14} />
                           </button>
                         </>
@@ -1805,7 +1807,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                     </div>
                   </div>
                   {hasInvalidCustomDateRange && (
-                    <p id="dashboard-date-range-error" className="text-xs text-rose-300 font-medium" role="alert">
+                    <p id="dashboard-date-range-error" className="text-xs text-[var(--status-negative)] font-medium" role="alert">
                       A data final precisa ser igual ou posterior à data inicial.
                     </p>
                   )}
@@ -1869,9 +1871,10 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                       aria-current={isActive ? "page" : undefined}
                       onClick={() => setActiveTab(tab.name)}
                       title={isSidebarCollapsed ? tab.name : undefined}
+                      aria-label={isSidebarCollapsed ? tab.name : undefined}
                       className={cn(
                         "w-full flex items-center rounded-[var(--radius-control)] text-sm font-semibold transition-colors border border-transparent",
-                        isSidebarCollapsed ? "justify-center h-10" : "gap-3 px-3 py-2.5",
+                        isSidebarCollapsed ? "justify-center h-11" : "gap-3 px-3 py-2.5",
                         isActive ? "bg-[var(--selection-subtle)] border-[var(--selection-ink)]/30 text-[var(--selection-ink)] font-bold" : "text-[var(--text-muted)] hover:bg-[var(--hover-wash-strong)] hover:text-[var(--text-primary)]"
                       )}
                     >
@@ -1974,7 +1977,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
         {loading && !data ? (
           <div role="status" aria-live="polite" className="flex flex-col justify-center items-center h-64 text-[var(--text-muted)] gap-4">
             <RotateCcw size={32} className="animate-spin text-[var(--brand-strategy-ink)]" />
-            <span className="font-bold tracking-wide">Puxando dados da Planilha...</span>
+            <span className="font-bold tracking-wide">Carregando dados...</span>
           </div>
         ) : (
           <>
@@ -2112,7 +2115,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                       id="lucroTotal"
                       title="Lucro Total"
                       value={formatCurrency(geral.lucroTotal)}
-                      valueColor={geral.lucroTotal >= 0 ? "text-[var(--brand-strategy-ink)]" : "text-rose-400"}
+                      valueColor={geral.lucroTotal >= 0 ? "text-[var(--brand-strategy-ink)]" : "text-[var(--status-negative)]"}
                       icon={<Zap size={20} />}
                       selected={selectedMetrics.includes('lucroTotal')}
                       onClick={() => toggleMetric('lucroTotal')}
@@ -2266,7 +2269,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
           {lastUpdated && (
             <div className="flex items-center gap-2 text-xs font-mono font-bold text-[var(--text-subtle)]">
               <span className="w-2 h-2 rounded-full bg-[var(--brand-strategy)] animate-pulse"></span>
-              Sincronizado via Google Sheets às {lastUpdated.toLocaleTimeString()}
+              Dados atualizados às {lastUpdated.toLocaleTimeString()}
             </div>
           )}
         </div>
@@ -2318,9 +2321,21 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                   variant="secondary"
                   size="sm"
                   className="min-h-11 shrink-0"
-                  onClick={() => { navigator.clipboard?.writeText(createdFunnel.id).catch(() => {}); }}
+                  onClick={() => {
+                    navigator.clipboard?.writeText(createdFunnel.id)
+                      .then(() => {
+                        setFunnelIdCopyState('copied');
+                        setTimeout(() => setFunnelIdCopyState('idle'), 2000);
+                      })
+                      .catch(() => {
+                        setFunnelIdCopyState('error');
+                        setTimeout(() => setFunnelIdCopyState('idle'), 2000);
+                      });
+                  }}
                 >
-                  Copiar
+                  <span role="status" aria-live="polite">
+                    {funnelIdCopyState === 'copied' ? 'Copiado!' : funnelIdCopyState === 'error' ? 'Não foi possível copiar' : 'Copiar'}
+                  </span>
                 </Button>
               </div>
             </div>
@@ -2333,7 +2348,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
               </div>
             )}
             {createdFunnelImport?.error && (
-              <div role="alert" className="rounded-[var(--radius-control)] border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+              <div role="alert" className="rounded-[var(--radius-control)] border border-[var(--status-negative)]/30 bg-[var(--status-negative)]/10 p-3 text-sm text-[var(--status-negative)]">
                 <strong>Funil salvo, mas a importação da planilha falhou:</strong> {createdFunnelImport.error}
               </div>
             )}
@@ -2360,7 +2375,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
               <strong className="text-[var(--brand-strategy-ink)]">Antes de adicionar:</strong> na planilha, abra <strong>Compartilhar</strong> e, se possível, restrinja o acesso a <strong>pessoas do domínio da empresa</strong> com permissão <strong>Leitor</strong>. Use <strong>Qualquer pessoa com o link</strong> apenas se essa opção não existir na sua conta Google.
             </div>
           )}
-          {newFunnelError && <p role="alert" className="rounded-[var(--radius-control)] border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{newFunnelError}</p>}
+          {newFunnelError && <p role="alert" className="rounded-[var(--radius-control)] border border-[var(--status-negative)]/30 bg-[var(--status-negative)]/10 p-3 text-sm text-[var(--status-negative)]">{newFunnelError}</p>}
         </div>
         )}
         <div className="mt-6 flex justify-end gap-3">

@@ -283,7 +283,7 @@ input,
 
 ::-webkit-scrollbar-thumb {
   background: var(--surface-4);
-  border-radius: 9999px;
+  border-radius: var(--radius-chip);
 }
 
 ::-webkit-scrollbar-thumb:hover {

@@ -1,0 +1,125 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-radius",
+        "value": "*",
+        "files": [
+          "server.ts"
+        ],
+        "createdAt": "2026-09-02T18:58:56.200Z",
+        "reason": "Agent: server.ts renders a standalone login page HTML string with its own small, self-contained style block predating this session; DESIGN.md documents the React dashboard app's token scale, not this satellite page"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "*",
+        "files": [
+          "server.ts"
+        ],
+        "createdAt": "2026-09-02T18:58:56.250Z",
+        "reason": "Agent: same login-page style block, pre-existing values unrelated to the dashboard's DESIGN.md type ramp"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "*",
+        "files": [
+          "server.ts"
+        ],
+        "createdAt": "2026-09-02T18:58:56.298Z",
+        "reason": "Agent: login page's Google-brand button colors (#1f1f1f, #f1f1f1) are fixed by Google's sign-in button guidelines, not part of the app's palette"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "*",
+        "files": [
+          "docs/api-docs.html"
+        ],
+        "createdAt": "2026-09-02T18:58:56.347Z",
+        "reason": "Agent: docs/api-docs.html is a standalone API reference page with its own pre-existing, internally consistent token system predating this session; DESIGN.md documents the dashboard app, not this satellite page"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "*",
+        "files": [
+          "docs/api-docs.html"
+        ],
+        "createdAt": "2026-09-02T18:58:56.397Z",
+        "reason": "Agent: same pre-existing docs-page type scale, denser than the dashboard's by design (Read-mode reference content)"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "*",
+        "files": [
+          "docs/api-docs.html"
+        ],
+        "createdAt": "2026-09-02T18:58:56.446Z",
+        "reason": "Agent: pre-existing semantic colors (GET/danger/warning badges, syntax-highlight swatches) specific to this reference page's own already-composed light/dark system"
+      },
+      {
+        "rule": "overused-font",
+        "value": "instrument sans",
+        "createdAt": "2026-09-02T18:58:56.494Z",
+        "reason": "Agent: same as above, lowercase form matched from the Google Fonts link href"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          "docs/api-docs.html"
+        ],
+        "createdAt": "2026-09-02T18:59:10.969Z",
+        "reason": "Agent: IBM Plex Mono is used for actual code/curl/JSON blocks on this standalone API reference page, appropriate monospace use for code, not a costume; DESIGN.md scopes the dashboard app's own type system, not this satellite page"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(62, 232, 181, 0.11)",
+        "createdAt": "2026-09-02T19:01:43.226Z",
+        "reason": "Agent: alpha-blended variant of an already-documented hue (ambient glow teal / brand-strategy-ink / border-hairline gray) used per DESIGN.md's Ambient Rule for background glow and border decoration, not a new palette color"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(0, 122, 94, 0.28)",
+        "createdAt": "2026-09-02T19:01:43.277Z",
+        "reason": "Agent: alpha-blended variant of an already-documented hue (ambient glow teal / brand-strategy-ink / border-hairline gray) used per DESIGN.md's Ambient Rule for background glow and border decoration, not a new palette color"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(62, 232, 181, 0.08)",
+        "createdAt": "2026-09-02T19:01:43.327Z",
+        "reason": "Agent: alpha-blended variant of an already-documented hue (ambient glow teal / brand-strategy-ink / border-hairline gray) used per DESIGN.md's Ambient Rule for background glow and border decoration, not a new palette color"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(148, 163, 184, 0.18)",
+        "createdAt": "2026-09-02T19:01:43.376Z",
+        "reason": "Agent: alpha-blended variant of an already-documented hue (ambient glow teal / brand-strategy-ink / border-hairline gray) used per DESIGN.md's Ambient Rule for background glow and border decoration, not a new palette color"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(148, 163, 184, 0.32)",
+        "createdAt": "2026-09-02T19:01:43.425Z",
+        "reason": "Agent: alpha-blended variant of an already-documented hue (ambient glow teal / brand-strategy-ink / border-hairline gray) used per DESIGN.md's Ambient Rule for background glow and border decoration, not a new palette color"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(247, 248, 250, 0.96)",
+        "createdAt": "2026-09-02T19:01:43.476Z",
+        "reason": "Agent: alpha-blended variant of an already-documented hue (ambient glow teal / brand-strategy-ink / border-hairline gray) used per DESIGN.md's Ambient Rule for background glow and border decoration, not a new palette color"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(62, 232, 181, 0.32)",
+        "createdAt": "2026-09-02T19:01:43.525Z",
+        "reason": "Agent: alpha-blended variant of an already-documented hue (ambient glow teal / brand-strategy-ink / border-hairline gray) used per DESIGN.md's Ambient Rule for background glow and border decoration, not a new palette color"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(0, 122, 94, 0.4)",
+        "createdAt": "2026-09-02T19:01:43.574Z",
+        "reason": "Agent: alpha-blended variant of an already-documented hue (ambient glow teal / brand-strategy-ink / border-hairline gray) used per DESIGN.md's Ambient Rule for background glow and border decoration, not a new palette color"
+      }
+    ]
+  }
+}

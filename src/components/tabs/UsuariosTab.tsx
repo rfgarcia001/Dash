@@ -107,17 +107,17 @@ export const UsuariosTab: React.FC<UsuariosTabProps> = ({
         ) : (
           <div className="space-y-2">
             {adminUsers.map((user) => (
-              <div key={user.email} className="flex items-center justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--border-hairline)] bg-[var(--surface-3)] px-4 py-3">
+              <div key={user.email} className="flex flex-col gap-3 rounded-[var(--radius-control)] border border-[var(--border-hairline)] bg-[var(--surface-3)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--brand-strategy-ink)]/30 bg-[var(--brand-strategy)]/15 font-mono text-sm font-bold text-[var(--brand-strategy-ink)]">
                     {user.email.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-[var(--text-primary)]">{user.email}</span>
-                    <span className="block truncate text-[11px] text-[var(--text-muted)]">adicionado por {user.added_by || '—'}</span>
+                    <span className="block break-words text-sm font-semibold text-[var(--text-primary)]">{user.email}</span>
+                    <span className="block break-words text-[11px] text-[var(--text-muted)]">adicionado por {user.added_by || '—'}</span>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-3">
+                <div className="flex shrink-0 items-center gap-3 self-end sm:self-auto">
                   <Badge variant={user.role === 'admin' ? 'brand' : 'neutral'}>
                     {user.role === 'admin' ? 'Admin' : 'Colaborador'}
                   </Badge>
