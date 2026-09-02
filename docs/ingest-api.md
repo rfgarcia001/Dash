@@ -193,6 +193,43 @@ Erros: `400` (funnelId/rows inválido), `404` (funil não cadastrado), `503`
 
 ---
 
+## `POST /api/ingest/query`
+
+Consulta somente-leitura no Postgres — pensada pro MCP server em
+`mcp-server/` (Claude conversando direto com o banco), mas qualquer cliente
+com o token pode usar.
+
+**Segurança:** roda dentro de uma transação com `SET TRANSACTION READ ONLY`
+— o Postgres recusa qualquer escrita por conta própria (mesmo uma
+disfarçada de CTE, tipo `WITH x AS (DELETE ... RETURNING *) SELECT * FROM x`),
+não depende só do filtro de texto (`;` proibido, precisa começar com
+`SELECT`/`WITH`).
+
+### Request
+
+```json
+{
+  "sql": "SELECT funnel_id, sum(spend) FROM meta_ads WHERE ad_date >= $1 GROUP BY funnel_id",
+  "params": ["2026-08-25"]
+}
+```
+
+- `sql`: uma instrução só, sem `;`, começando com `SELECT` ou `WITH`.
+- `params`: opcional, parâmetros posicionais (`$1`, `$2`...).
+
+### Response
+
+```json
+{ "ok": true, "rowCount": 4, "rows": [ { "funnel_id": "estrategia", "sum": "327.64" } ], "truncated": false }
+```
+
+`rows` corta em 1000 linhas (`truncated: true` se cortou).
+
+**Erros:** `400` (sql inválido/ausente, `;` usado, ou tentativa de escrita
+— o Postgres rejeita e a mensagem vem dele) · `401` · `503`.
+
+---
+
 ## Testando com curl
 
 ```bash

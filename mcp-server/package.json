@@ -1,0 +1,18 @@
+{
+  "name": "allevo-dashboard-mcp",
+  "version": "1.0.0",
+  "description": "MCP server que expõe consulta somente-leitura ao Postgres do Allevo Dashboard (VPS) via /api/ingest/*",
+  "main": "index.mjs",
+  "type": "module",
+  "bin": {
+    "allevo-dashboard-mcp": "./index.mjs"
+  },
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.5.4"
+  }
+}

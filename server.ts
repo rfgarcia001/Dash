@@ -503,6 +503,63 @@ function registerIngestRoutes(app: express.Express) {
       res.status(error.status || 500).json({ error: error.message || "Falha ao gravar dados de criativos." });
     }
   });
+
+  // Consulta somente-leitura pro MCP (Claude) enxergar o banco direto. Defesa
+  // em profundidade: nega múltiplas instruções (sem ";"), exige SELECT/WITH
+  // no início, e MESMO ASSIM roda dentro de uma transação com
+  // SET TRANSACTION READ ONLY — o Postgres recusa qualquer escrita (mesmo
+  // via CTE tipo "WITH x AS (DELETE ... RETURNING *) SELECT * FROM x") por
+  // conta própria, não dependemos só do filtro de texto. Importante: é
+  // "SET TRANSACTION READ ONLY" (afeta a transação atual), não
+  // "SET default_transaction_read_only" (só afeta transações futuras) —
+  // testado o ataque via CTE contra as duas formas antes de decidir.
+  app.post("/api/ingest/query", requireIngestToken, async (req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Ingestão via API requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const { sql, params } = req.body || {};
+      if (!sql || typeof sql !== "string") {
+        return res.status(400).json({ error: "sql é obrigatório." });
+      }
+      const trimmed = sql.trim();
+      if (trimmed.includes(";")) {
+        return res.status(400).json({ error: "Não use ';' — só uma instrução por chamada." });
+      }
+      if (!/^(select|with)\b/i.test(trimmed)) {
+        return res.status(400).json({ error: "Só consultas SELECT (ou WITH ... SELECT) são permitidas." });
+      }
+      const queryParams = params == null ? [] : params;
+      if (!Array.isArray(queryParams)) {
+        return res.status(400).json({ error: "params deve ser uma lista." });
+      }
+
+      const pool = await pgPool();
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SET LOCAL statement_timeout = '8000ms'");
+        await client.query("SET TRANSACTION READ ONLY");
+        const result = await client.query(trimmed, queryParams);
+        await client.query("ROLLBACK");
+        const MAX_ROWS = 1000;
+        const truncated = result.rows.length > MAX_ROWS;
+        res.json({
+          ok: true,
+          rowCount: result.rowCount,
+          rows: truncated ? result.rows.slice(0, MAX_ROWS) : result.rows,
+          truncated
+        });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    } catch (error: any) {
+      res.status(error.status || 400).json({ error: error.message || "Falha ao executar consulta." });
+    }
+  });
 }
 
       const getField = (item: any, ...keys: string[]) => {
