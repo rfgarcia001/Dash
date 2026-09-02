@@ -1809,6 +1809,12 @@ async function startServer() {
     if (role !== "admin") {
       const configuredAdmins = parseList(process.env.DASHBOARD_ADMIN_EMAILS);
       if (configuredAdmins.includes(email)) role = "admin";
+      // Mesmo bypass de conveniência que requireDashboardAdmin já tem: sem
+      // nenhum admin configurado e fora de produção, todo mundo é admin
+      // (dev local sem precisar configurar nada). Sem isso o frontend
+      // esconderia os botões de criar/editar/apagar funil mesmo quando o
+      // backend deixaria passar.
+      else if (configuredAdmins.length === 0 && process.env.NODE_ENV !== "production") role = "admin";
     }
     res.json({ email, role, googleLoginEnabled: Boolean(process.env.GOOGLE_CLIENT_ID) });
   });

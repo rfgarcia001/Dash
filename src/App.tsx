@@ -6,11 +6,16 @@ import type { AuthUser } from './types/auth';
 export default function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [googleLoginEnabled, setGoogleLoginEnabled] = useState(false);
+  // Independente do Google estar ligado — Basic Auth também tem um papel
+  // (via DASHBOARD_ADMIN_EMAILS), e criar/apagar funil precisa saber disso
+  // pra esconder os botões de quem não é admin, em qualquer modo de login.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     fetchMe()
       .then((me) => {
         setGoogleLoginEnabled(me.googleLoginEnabled);
+        setIsAdmin(me.role === 'admin');
         // Basic Auth (sem Google) não expõe identidade de sessão pra
         // renderizar o menu de perfil — só liga o authUser quando o login
         // via Google está habilitado no servidor.
@@ -30,6 +35,7 @@ export default function App() {
   return (
     <Dashboard
       authUser={authUser}
+      isAdmin={isAdmin}
       onLogout={googleLoginEnabled ? () => { window.location.href = '/auth/logout'; } : undefined}
     />
   );

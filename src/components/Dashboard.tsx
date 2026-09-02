@@ -111,9 +111,10 @@ function getLabelForDateRange(range: string, custom: { start: string; end: strin
 }
 interface DashboardProps {
   authUser?: AuthUser | null;
+  isAdmin?: boolean;
   onLogout?: () => void;
 }
-export default function Dashboard({ authUser, onLogout }: DashboardProps) {
+export default function Dashboard({ authUser, isAdmin = false, onLogout }: DashboardProps) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -1658,26 +1659,32 @@ export default function Dashboard({ authUser, onLogout }: DashboardProps) {
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getFunnelColor(funnels, funnel.id) }} />
                         <span className="text-sm font-medium text-[var(--text-primary)] min-w-0 truncate">{funnel.name}</span>
                       </button>
-                      <button type="button" role="menuitem" onClick={() => openFunnelEditor(funnel)} title={`Editar ${funnel.name}`} aria-label={`Editar ${funnel.name}`} className="min-w-11 min-h-11 shrink-0 inline-flex items-center justify-center rounded-[6px] text-[var(--text-muted)] hover:bg-[var(--hover-wash-strong)] hover:text-[var(--text-primary)]">
-                        <Pencil size={14} />
-                      </button>
-                      <button type="button" role="menuitem" onClick={() => { setIsFunnelMenuOpen(false); setFunnelPendingDelete(funnel); }} title={`Remover ${funnel.name}`} aria-label={`Remover ${funnel.name}`} className="min-w-11 min-h-11 shrink-0 inline-flex items-center justify-center rounded-[6px] text-rose-300 hover:bg-rose-500/15 hover:text-rose-100">
-                        <Trash2 size={14} />
-                      </button>
+                      {isAdmin && (
+                        <>
+                          <button type="button" role="menuitem" onClick={() => openFunnelEditor(funnel)} title={`Editar ${funnel.name}`} aria-label={`Editar ${funnel.name}`} className="min-w-11 min-h-11 shrink-0 inline-flex items-center justify-center rounded-[6px] text-[var(--text-muted)] hover:bg-[var(--hover-wash-strong)] hover:text-[var(--text-primary)]">
+                            <Pencil size={14} />
+                          </button>
+                          <button type="button" role="menuitem" onClick={() => { setIsFunnelMenuOpen(false); setFunnelPendingDelete(funnel); }} title={`Remover ${funnel.name}`} aria-label={`Remover ${funnel.name}`} className="min-w-11 min-h-11 shrink-0 inline-flex items-center justify-center rounded-[6px] text-rose-300 hover:bg-rose-500/15 hover:text-rose-100">
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   );
                 })}
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setIsFunnelMenuOpen(false);
-                    setIsAddFunnelConfirmOpen(true);
-                  }}
-                  className="w-full mt-2 pt-3 border-t border-[var(--border-hairline)] flex items-center gap-2.5 px-2.5 py-2.5 rounded-[6px] text-[var(--brand-strategy-ink)] hover:bg-[var(--brand-strategy)]/10 text-left text-sm font-bold transition-colors"
-                >
-                  <Plus size={16} /> Adicionar funil
-                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsFunnelMenuOpen(false);
+                      setIsAddFunnelConfirmOpen(true);
+                    }}
+                    className="w-full mt-2 pt-3 border-t border-[var(--border-hairline)] flex items-center gap-2.5 px-2.5 py-2.5 rounded-[6px] text-[var(--brand-strategy-ink)] hover:bg-[var(--brand-strategy)]/10 text-left text-sm font-bold transition-colors"
+                  >
+                    <Plus size={16} /> Adicionar funil
+                  </button>
+                )}
             </PopoverPanel>
           </div>
           {/* Compact Popover Date Range Selector */}
