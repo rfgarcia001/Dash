@@ -711,7 +711,11 @@ function registerAuthRoutes(app: express.Express) {
 
       const pool = await pgPool();
       const { rows } = await pool.query("SELECT role FROM users WHERE email = $1", [email]);
-      if (!rows[0]) {
+      // Mesma regra de bootstrap do requireDashboardAuth/Admin: sem isso,
+      // ninguém — nem o admin de emergência — conseguiria completar o
+      // primeiro login pra popular a tabela vazia.
+      const isEmergencyAdmin = parseList(process.env.DASHBOARD_ADMIN_EMAILS).includes(email);
+      if (!rows[0] && !isEmergencyAdmin) {
         return res.status(403).type("html").send(loginPageHtml(`O e-mail ${email} ainda não foi liberado. Peça pra um administrador te adicionar.`));
       }
 
