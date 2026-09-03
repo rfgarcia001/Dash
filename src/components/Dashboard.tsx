@@ -671,6 +671,13 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
     const extractAdId = (s: any) => {
       if (!s) return null;
       const str = normalizeStr(s);
+      // "ad046-048" is a RANGE spanning a whole ad set, not one specific
+      // ad — without this guard, the digit regex below greedily grabbed
+      // just the start number (46) as if it uniquely identified one ad.
+      // buyers' utm_medium commonly carries this range (not a single ad's
+      // own id), so isAdMatch was piling every sale from that whole range
+      // onto ad046 specifically, starving 047/048 of their real sales.
+      if (/\bad\s*0*\d+\s*-\s*0*\d+\b/.test(str)) return null;
       const m = str.match(/\bad\s*0*(\d+)\b/) || str.match(/\[ad\s*0*(\d+)\]/);
       return m ? parseInt(m[1], 10) : null;
     };
