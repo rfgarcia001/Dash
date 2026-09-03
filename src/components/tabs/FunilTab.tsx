@@ -67,7 +67,7 @@ export const FunilTab: React.FC<FunilTabProps> = ({
         <ConnectorRate label="CTR (Cliques / Imp.)" value={geral.impressoesTotal > 0 ? geral.cliquesTotal / geral.impressoesTotal : 0} formatPercent={formatPercent} />
 
         <div className="w-full max-w-2xl">
-          <FunnelStep label="2. Cliques no Link" icon={<MousePointerClick size={12} />} value={geral.cliquesTotal} tone="brand" formatNumber={formatNumber} />
+          <FunnelStep label="2. Cliques no Link" icon={<MousePointerClick size={12} />} value={geral.cliquesTotal} tone="management" formatNumber={formatNumber} />
         </div>
         <ConnectorRate label="Views Pag / Clique" value={geral.cliquesTotal > 0 ? geral.pageViewsTotal / geral.cliquesTotal : 0} formatPercent={formatPercent} />
 
