@@ -4,20 +4,34 @@ Três endpoints: Meta Ads, Vendas e Criativos. Cada um grava direto nas
 tabelas do Postgres (`db/schema.sql`) — o dashboard só faz `SELECT` nelas,
 nunca escreve.
 
-Só funcionam quando o servidor tem `DATABASE_URL` **e** `INGEST_API_TOKEN`
-configuradas (ver `.env.example`). Sem isso, ambos respondem `503`.
+Só funcionam quando o servidor tem `DATABASE_URL` configurada **e** existe
+pelo menos um token válido — `INGEST_API_TOKEN` (env var) ou uma API Key
+criada pela tela do dashboard (ver abaixo). Sem nenhum dos dois, ambos
+respondem `503`.
 
 ## Autenticação
 
 Header em toda requisição:
 
 ```
-X-Ingest-Token: <valor de INGEST_API_TOKEN>
+X-Ingest-Token: <token>
 ```
 
 Não é o usuário/senha do dashboard (`DASHBOARD_PASSWORD`) — é um token
 separado, só pra automação. Guardar como credencial no N8N (não em texto
 puro no workflow).
+
+Duas formas de gerar esse token, que funcionam em paralelo:
+
+- **API Key pela tela do dashboard** (recomendado): "Gerenciar Acessos" →
+  aba "API Keys" → "Criar API Key". O valor só aparece uma vez, na
+  criação — copie na hora. Dá pra criar uma key por automação/integração e
+  revogar individualmente sem afetar as outras, com histórico de quem
+  criou e quando foi usada pela última vez.
+- **`INGEST_API_TOKEN`** (env var, legado): um token único fixo,
+  configurado no `.env` do servidor. Continua funcionando como acesso de
+  emergência/fallback, mas não aparece na tela nem pode ser revogado sem
+  reiniciar o servidor.
 
 ## `funnelId`
 
