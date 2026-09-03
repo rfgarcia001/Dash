@@ -161,7 +161,7 @@ export const FunilTab: React.FC<FunilTabProps> = ({
                         >
                           {expandedCampaigns[camp.name] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         </button>
-                        <span className="truncate" title={camp.name}>{camp.name}</span>
+                        <span className="truncate" title={camp.name} aria-label={camp.name}>{camp.name}</span>
                       </td>
                       <td className="px-3.5 py-3 text-center font-medium tabular-nums bg-[var(--hover-wash)]">{formatNumber(camp.impressoes)}</td>
                       <td className="px-2 py-3 text-center text-xs text-[var(--text-subtle)] tabular-nums">{formatPercent(camp.ctr)}</td>
@@ -178,7 +178,7 @@ export const FunilTab: React.FC<FunilTabProps> = ({
                       <tr key={`${camp.name}-${set.name}`} className="bg-black/10 hover:bg-[var(--hover-wash)] transition-colors">
                         <td className="px-3.5 py-2.5 pl-8 text-[var(--text-muted)] font-sans flex items-center gap-2 max-w-[220px] xl:max-w-[320px]">
                           <Layers size={13} className="text-[var(--text-subtle)] shrink-0" />
-                          <span className="truncate text-[11px]" title={set.name}>{set.name}</span>
+                          <span className="truncate text-[11px]" title={set.name} aria-label={set.name}>{set.name}</span>
                         </td>
                         <td className="px-3.5 py-2.5 text-center text-[11px] text-[var(--text-muted)] tabular-nums">{formatNumber(set.impressoes)}</td>
                         <td className="px-2 py-2.5 text-center text-[10px] text-[var(--text-subtle)] tabular-nums">{formatPercent(set.ctr)}</td>

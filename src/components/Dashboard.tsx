@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { createDashboardFunnel, DashboardFunnel, deleteDashboardFunnel, fetchDashboardFunnels, fetchSpreadsheetData, FunnelImportResult, updateDashboardFunnel, DashboardAdminUser, fetchAdminUsers, addAdminUser, removeAdminUser, DashboardApiToken, fetchApiTokens, createApiToken, revokeApiToken } from '../services/api';
 import { cn } from '../lib/utils';
-import { filterByDate, buildDateFilter, buildPreviousDateFilter, getPreviousPeriodLabel, calculateComparison, parseValue, formatCurrency, formatPercent, formatNumber, parseUtcToUtcMinus3 } from '../lib/metrics';
+import { filterByDate, buildDateFilter, buildPreviousDateFilter, getPreviousPeriodLabel, calculateComparison, parseValue, formatCurrency, formatPercent, formatNumber, parseUtcToUtcMinus3, decodeHtmlEntities } from '../lib/metrics';
 import { useSortState } from '../lib/hooks';
 import type { AuthUser } from '../types/auth';
 import { LightboxModal } from './tabs/LightboxModal';
@@ -891,8 +891,8 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
     // --- AGRUPAMENTO DE CAMPANHAS E CONJUNTOS ---
     const campaignsMap: Record<string, any> = {};
     metaData.forEach((row: any) => {
-      const campName = row['Nome da Campanha'] || 'Desconhecida';
-      const setName = row['Nome do Conjunto'] || 'Desconhecido';
+      const campName = decodeHtmlEntities(row['Nome da Campanha'] || '') || 'Desconhecida';
+      const setName = decodeHtmlEntities(row['Nome do Conjunto'] || '') || 'Desconhecido';
       if (!campaignsMap[campName]) {
         campaignsMap[campName] = {
           name: campName,
@@ -1148,7 +1148,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
           if (matchedThumbKey && !foundThumb) foundThumb = creativeThumbs[matchedThumbKey];
         }
         creativesMap[key] = {
-           name: adName,
+           name: decodeHtmlEntities(adName) || adName,
            link: foundLink,
            thumb: foundThumb,
            Thumb_Criativo: foundThumb,
@@ -1256,7 +1256,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
       const valStr = row['Valor'] || row['Valor Bruto'] || row['Preço'] || row['Faturamento'] || row['Valor Pago'] || '0';
       dayData.faturamentoTotal += parseValue(valStr);
       dayData.vendasIngressos += 1;
-      const product = String(row['Produto Principal'] || row['Produto'] || 'Produto não identificado').trim() || 'Produto não identificado';
+      const product = decodeHtmlEntities(String(row['Produto Principal'] || row['Produto'] || 'Produto não identificado').trim()) || 'Produto não identificado';
       // New funnels retain their full name in the source rows. Normalize the two
       // built-in funnels so their product series keep their established palettes.
       const funnelSource = String(row['Funil'] || row['funil'] || '').trim();
@@ -2187,12 +2187,15 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                     />
                   </div>
                 </div>
-                {/* SECOND ROW: SECONDARY METRICS */}
+                {/* SECOND ROW: SECONDARY METRICS — split into two ≤4-item groups
+                    (volume/resultado vs. eficiência) instead of one flat row
+                    of 6, so each group stays within the chunking guideline. */}
+                <div className="space-y-6">
                 <div>
                   <span className="text-sm font-bold uppercase tracking-[0.08em] text-[var(--text-muted)] mb-3 block">
-                    Outras Métricas Operacionais
+                    Resultado
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <MetricCard
                       id="lucroTotal"
                       title="Lucro Total"
@@ -2230,7 +2233,14 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                       className="metric-card--compact"
                       breakdown={buildBreakdown('vendasTrafego', formatNumber)}
                     />
-                    <MetricCard 
+                  </div>
+                </div>
+                <div>
+                  <span className="text-sm font-bold uppercase tracking-[0.08em] text-[var(--text-muted)] mb-3 block">
+                    Eficiência
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <MetricCard
                       id="cpaTrafego"
                       title="CPA (Tráfego)"
                       value={formatCurrency(geral.cpaTrafego)}
@@ -2267,6 +2277,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                       breakdown={buildBreakdown('conversaoOrderBump', formatPercent)}
                     />
                   </div>
+                </div>
                 </div>
                 <DailyChartSection
                   dailyMetrics={metricsData.dailyMetrics}
