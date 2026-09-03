@@ -194,3 +194,42 @@ export async function removeAdminUser(email: string): Promise<void> {
     throw new Error(payload.error || `Não foi possível remover o usuário (HTTP ${response.status}).`);
   }
 }
+
+export interface DashboardApiToken {
+  id: number;
+  name: string;
+  created_by: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export async function fetchApiTokens(): Promise<DashboardApiToken[]> {
+  const response = await fetch('/api/admin/tokens', { cache: 'no-store' });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !Array.isArray(payload.tokens)) {
+    throw new Error(payload.error || 'Não foi possível carregar as API Keys.');
+  }
+  return payload.tokens;
+}
+
+export async function createApiToken(name: string): Promise<{ id: number; name: string; token: string }> {
+  const response = await fetch('/api/admin/tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.token) {
+    throw new Error(payload.error || `Não foi possível criar a API Key (HTTP ${response.status}).`);
+  }
+  return payload;
+}
+
+export async function revokeApiToken(id: number): Promise<void> {
+  const response = await fetch(`/api/admin/tokens/${id}`, { method: 'DELETE' });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `Não foi possível revogar a API Key (HTTP ${response.status}).`);
+  }
+}

@@ -89,3 +89,20 @@ CREATE TABLE IF NOT EXISTS users (
   added_by TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Tokens de API pra automação (N8N, scripts) autenticar em /api/ingest/*,
+-- gerenciados pela aba "API Keys" da tela de admin. Guarda só o hash
+-- (SHA-256) do token, nunca o valor puro — o token só é mostrado uma vez,
+-- na hora da criação. INGEST_API_TOKEN (env var) continua funcionando em
+-- paralelo como acesso de emergência/legado; requireIngestToken em
+-- server.ts aceita qualquer um dos dois.
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS api_tokens_active_idx ON api_tokens (token_hash) WHERE revoked_at IS NULL;
