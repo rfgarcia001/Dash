@@ -8,6 +8,22 @@ export const parseValue = (val: any) => {
   return parseFloat(cleaned) || 0;
 };
 
+// Nomes de produto/campanha/conjunto às vezes chegam da fonte (planilha ou
+// automação de ingestão) já com entidades HTML escapadas (ex.: "PMOs &amp;
+// VMOs") em vez do texto puro — provavelmente escapados uma vez a mais em
+// algum passo anterior a esse app. Decodifica na leitura, no ponto onde cada
+// nome é extraído da linha, em vez de em cada lugar que exibe o nome depois.
+const HTML_ENTITIES: Record<string, string> = {
+  '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'", '&nbsp;': ' ',
+};
+export const decodeHtmlEntities = (val: any): string => {
+  const str = val == null ? '' : String(val);
+  if (!str || str.indexOf('&') === -1) return str;
+  return str
+    .replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&apos;|&nbsp;/g, (entity) => HTML_ENTITIES[entity])
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+};
+
 const referenceDate = new Date();
 
 export function parseUtcToUtcMinus3(rawStr: any): { dateStr: string; formattedDisplay: string; timestamp: number } {

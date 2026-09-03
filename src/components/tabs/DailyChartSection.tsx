@@ -12,6 +12,14 @@ import {
   Line
 } from 'recharts';
 import { cn } from '../../lib/utils';
+import { EmptyState } from '../ui/EmptyState';
+
+// A Recharts Area/Bar with a single x-value has no second point to taper
+// against, so it fills the whole plot width — correct rendering for that
+// data shape, but reads as "broken" rather than "not enough history yet"
+// (a real state for a brand-new funnel or its first day live). Below this,
+// show an explicit empty state instead of letting the chart render that way.
+const MIN_CHART_POINTS = 2;
 
 // Fallback hue for a series whose funnel isn't in `funnelColors` (e.g. "Sem
 // origem"), so it never crashes — real funnels always come from the prop.
@@ -127,9 +135,12 @@ export const DailyChartSection: React.FC<DailyChartSectionProps> = ({
       .replace(/^Livro Digital\s*/i, 'Livro ')
       .replace(/Gestão de Projetos com Inteligência Artificial/gi, 'Gestão IA')
       .replace(/Gestão de Projetos com IA/gi, 'Gestão IA')
-      .replace(/Estratégia em Ação:\s*PMOs\s*&\s*VMOs/gi, 'Livro')
+      // The "Livro " prefix (if present) already came from the replace above —
+      // this just drops the redundant subtitle instead of re-adding "Livro".
+      .replace(/Estratégia em Ação:\s*PMOs\s*&\s*VMOs/gi, '')
       .replace(/Estratégia em Ação/gi, 'Estratégia')
-      .replace(/Base de Conhecimento \+ Copiloto de Leitura/gi, 'Base + Cop.');
+      .replace(/Base de Conhecimento \+ Copiloto de Leitura/gi, 'Base + Cop.')
+      .trim();
   const compactLegendLabel = (series: string) => {
     const { funnel, isOrderBump, product } = getSeriesMeta(series);
     const funnelName = /estrat(é|e)gia/i.test(funnel)
@@ -204,6 +215,11 @@ export const DailyChartSection: React.FC<DailyChartSectionProps> = ({
       </div>
 
       <div className="h-[320px] sm:h-[380px] w-full">
+        {dailyMetrics.length < MIN_CHART_POINTS ? (
+          <div className="h-full flex items-center justify-center rounded-[var(--radius-control)] border border-dashed border-[var(--border-hairline)]">
+            <EmptyState title="Dados insuficientes para o gráfico" subtitle="Esse período tem menos de 2 dias com dado — o histórico aparece assim que houver mais." />
+          </div>
+        ) : (
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={dailyMetrics}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
@@ -311,6 +327,7 @@ export const DailyChartSection: React.FC<DailyChartSectionProps> = ({
             }); })()}
           </ComposedChart>
         </ResponsiveContainer>
+        )}
       </div>
 
       {products.length > 0 && (
@@ -320,6 +337,11 @@ export const DailyChartSection: React.FC<DailyChartSectionProps> = ({
             <p className="mt-1 text-sm text-[var(--text-muted)] font-medium">Produto principal e Order Bump vendidos por dia no período selecionado.</p>
           </div>
           <div className="h-[260px] sm:h-[300px] w-full">
+            {productChartData.length < MIN_CHART_POINTS ? (
+              <div className="h-full flex items-center justify-center rounded-[var(--radius-control)] border border-dashed border-[var(--border-hairline)]">
+                <EmptyState title="Dados insuficientes para o gráfico" subtitle="Esse período tem menos de 2 dias com dado — o histórico aparece assim que houver mais." />
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={productChartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGrid} />
@@ -366,6 +388,7 @@ export const DailyChartSection: React.FC<DailyChartSectionProps> = ({
                 ))}
               </ComposedChart>
             </ResponsiveContainer>
+            )}
           </div>
         </section>
       )}
