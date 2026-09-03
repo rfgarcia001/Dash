@@ -354,16 +354,39 @@ async function fetchFunnelDataFromDb(funnel: FunnelConfig): Promise<{
 
 // Grava dados vindos de uma automação externa (N8N) direto no Postgres. Ver
 // docs/ingest-api.md pro contrato completo de cada endpoint.
-function requireIngestToken(req: express.Request, res: express.Response, next: express.NextFunction) {
+function hashApiToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+async function requireIngestToken(req: express.Request, res: express.Response, next: express.NextFunction) {
   const expectedToken = (process.env.INGEST_API_TOKEN || "").trim();
-  if (!expectedToken) {
-    return res.status(503).json({ error: "Ingestão via API não está habilitada. Configure INGEST_API_TOKEN no servidor." });
-  }
   const suppliedToken = String(req.headers["x-ingest-token"] || "");
-  if (!suppliedToken || !timingSafeEqual(suppliedToken, expectedToken)) {
+  if (!suppliedToken) {
     return res.status(401).json({ error: "Token de ingestão inválido ou ausente (header X-Ingest-Token)." });
   }
-  next();
+  // INGEST_API_TOKEN (env var) é o acesso de emergência/legado — continua
+  // valendo em paralelo aos tokens emitidos pela aba "API Keys" (tabela
+  // api_tokens), mesmo padrão do DASHBOARD_ADMIN_EMAILS pra login humano.
+  if (expectedToken && timingSafeEqual(suppliedToken, expectedToken)) {
+    return next();
+  }
+  if (DATABASE_URL) {
+    try {
+      const pool = await pgPool();
+      const tokenHash = hashApiToken(suppliedToken);
+      const { rows } = await pool.query(
+        "UPDATE api_tokens SET last_used_at = now() WHERE token_hash = $1 AND revoked_at IS NULL RETURNING id",
+        [tokenHash]
+      );
+      if (rows[0]) return next();
+    } catch (err) {
+      console.error("requireIngestToken: falha ao consultar tabela api_tokens:", err);
+    }
+  }
+  if (!expectedToken && !DATABASE_URL) {
+    return res.status(503).json({ error: "Ingestão via API não está habilitada. Configure INGEST_API_TOKEN ou crie uma API Key no servidor." });
+  }
+  return res.status(401).json({ error: "Token de ingestão inválido ou ausente (header X-Ingest-Token)." });
 }
 
 function registerIngestRoutes(app: express.Express) {
@@ -1922,6 +1945,66 @@ async function startServer() {
       res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Falha ao remover usuário." });
+    }
+  });
+
+  // Tokens de API pra automação (N8N, scripts) autenticar em /api/ingest/*
+  // — ver requireIngestToken. Só admin gerencia; o token em si nunca é
+  // devolvido depois de criado, só o hash fica guardado.
+  app.get("/api/admin/tokens", requireDashboardAdmin, async (_req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Gerenciar API Keys requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const pool = await pgPool();
+      const { rows } = await pool.query(
+        "SELECT id, name, created_by, created_at, last_used_at, revoked_at FROM api_tokens ORDER BY created_at DESC"
+      );
+      res.json({ tokens: rows });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Falha ao listar API Keys." });
+    }
+  });
+
+  app.post("/api/admin/tokens", requireDashboardAdmin, async (req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Gerenciar API Keys requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const name = String(req.body?.name || "").trim().replace(/\s+/g, " ");
+      if (name.length < 3 || name.length > 80) {
+        return res.status(400).json({ error: "Informe um nome pra API Key entre 3 e 80 caracteres." });
+      }
+      const rawToken = `allevo_${crypto.randomBytes(32).toString("hex")}`;
+      const tokenHash = hashApiToken(rawToken);
+      const pool = await pgPool();
+      const { rows } = await pool.query(
+        `INSERT INTO api_tokens (name, token_hash, created_by) VALUES ($1,$2,$3)
+         RETURNING id, name, created_by, created_at`,
+        [name, tokenHash, dashboardAdminEmail(req)]
+      );
+      res.json({ ok: true, token: rawToken, ...rows[0] });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Falha ao criar API Key." });
+    }
+  });
+
+  app.delete("/api/admin/tokens/:id", requireDashboardAdmin, async (req, res) => {
+    if (!DATABASE_URL) {
+      return res.status(503).json({ error: "Gerenciar API Keys requer DATABASE_URL configurada no servidor." });
+    }
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: "ID de API Key inválido." });
+      }
+      const pool = await pgPool();
+      // Revoga (marca revoked_at) em vez de apagar a linha — mantém o
+      // histórico de quem criou/quando, só invalida o uso pra ingestão.
+      await pool.query("UPDATE api_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL", [id]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Falha ao revogar API Key." });
     }
   });
 

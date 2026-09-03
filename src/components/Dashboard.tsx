@@ -2,9 +2,9 @@ import React, { useEffect, useState, useMemo, useRef, useTransition } from 'reac
 import { 
   Calendar, RotateCcw, LayoutDashboard, Layers, Disc, MousePointer2, Package, 
   DollarSign, TrendingUp, TrendingDown, Zap, Ticket, ShoppingCart, Target, Megaphone, ChevronDown, PieChart, Eye, MousePointerClick, Monitor, Plus, Equal, Image, ExternalLink, Search, Bell, AlertTriangle, Check, X, Pencil, Trash2,
-  ShieldCheck, LogOut, UserCheck, Shield, Maximize2, PanelLeftClose, PanelLeftOpen, History, Sun, Moon, ArrowLeft
+  ShieldCheck, LogOut, UserCheck, Shield, Maximize2, PanelLeftClose, PanelLeftOpen, History, Sun, Moon, ArrowLeft, KeyRound
 } from 'lucide-react';
-import { createDashboardFunnel, DashboardFunnel, deleteDashboardFunnel, fetchDashboardFunnels, fetchSpreadsheetData, FunnelImportResult, updateDashboardFunnel, DashboardAdminUser, fetchAdminUsers, addAdminUser, removeAdminUser } from '../services/api';
+import { createDashboardFunnel, DashboardFunnel, deleteDashboardFunnel, fetchDashboardFunnels, fetchSpreadsheetData, FunnelImportResult, updateDashboardFunnel, DashboardAdminUser, fetchAdminUsers, addAdminUser, removeAdminUser, DashboardApiToken, fetchApiTokens, createApiToken, revokeApiToken } from '../services/api';
 import { cn } from '../lib/utils';
 import { filterByDate, buildDateFilter, buildPreviousDateFilter, getPreviousPeriodLabel, calculateComparison, parseValue, formatCurrency, formatPercent, formatNumber, parseUtcToUtcMinus3 } from '../lib/metrics';
 import { useSortState } from '../lib/hooks';
@@ -22,6 +22,7 @@ const CriativosTab = React.lazy(() => import('./tabs/CriativosTab').then(({ Cria
 const FontesTab = React.lazy(() => import('./tabs/FontesTab').then(({ FontesTab }) => ({ default: FontesTab })));
 const ProdutosTab = React.lazy(() => import('./tabs/ProdutosTab').then(({ ProdutosTab }) => ({ default: ProdutosTab })));
 const UsuariosTab = React.lazy(() => import('./tabs/UsuariosTab').then(({ UsuariosTab }) => ({ default: UsuariosTab })));
+const ApiKeysTab = React.lazy(() => import('./tabs/ApiKeysTab').then(({ ApiKeysTab }) => ({ default: ApiKeysTab })));
 const DEFAULT_DASHBOARD_FUNNELS: DashboardFunnel[] = [
   { id: 'estrategia', name: 'Livro Estratégia em Ação', sheetId: '', color: '#00FFBB', builtIn: true },
   { id: 'gestao-ia', name: 'Livro Gestão de Projetos com IA', sheetId: '', color: '#66BEFF', builtIn: true }
@@ -184,6 +185,7 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
   // de olhar dado de performance, então vira uma view própria em tela
   // cheia com "Voltar", não mais um item perdido na barra lateral.
   const [view, setView] = useState<'dashboard' | 'usuarios'>('dashboard');
+  const [accessTab, setAccessTab] = useState<'usuarios' | 'apiKeys'>('usuarios');
   const [isAddUserFormOpen, setIsAddUserFormOpen] = useState(false);
   const [adminUsers, setAdminUsers] = useState<DashboardAdminUser[]>([]);
   const [isLoadingAdminUsers, setIsLoadingAdminUsers] = useState(false);
@@ -192,6 +194,15 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
   const [newUserRole, setNewUserRole] = useState<'admin' | 'member'>('member');
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [removingUserEmail, setRemovingUserEmail] = useState<string | null>(null);
+  const [isAddTokenFormOpen, setIsAddTokenFormOpen] = useState(false);
+  const [apiTokens, setApiTokens] = useState<DashboardApiToken[]>([]);
+  const [isLoadingApiTokens, setIsLoadingApiTokens] = useState(false);
+  const [apiTokensError, setApiTokensError] = useState<string | null>(null);
+  const [newTokenName, setNewTokenName] = useState('');
+  const [isCreatingToken, setIsCreatingToken] = useState(false);
+  const [createdToken, setCreatedToken] = useState<{ name: string; token: string } | null>(null);
+  const [tokenCopyState, setTokenCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const [revokingTokenId, setRevokingTokenId] = useState<number | null>(null);
 
   const loadAdminUsers = () => {
     setIsLoadingAdminUsers(true);
@@ -202,12 +213,78 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
       .finally(() => setIsLoadingAdminUsers(false));
   };
 
+  const loadApiTokens = () => {
+    setIsLoadingApiTokens(true);
+    setApiTokensError(null);
+    fetchApiTokens()
+      .then(setApiTokens)
+      .catch((err) => setApiTokensError(err.message))
+      .finally(() => setIsLoadingApiTokens(false));
+  };
+
   useEffect(() => {
     if (view !== 'usuarios') return;
+    setAccessTab('usuarios');
     setIsAddUserFormOpen(false);
+    setIsAddTokenFormOpen(false);
+    setCreatedToken(null);
     loadAdminUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
+
+  useEffect(() => {
+    if (view !== 'usuarios' || accessTab !== 'apiKeys') return;
+    loadApiTokens();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, accessTab]);
+
+  const handleCreateToken = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = newTokenName.trim();
+    if (name.length < 3) return;
+    setIsCreatingToken(true);
+    try {
+      const result = await createApiToken(name);
+      setCreatedToken({ name: result.name, token: result.token });
+      setNewTokenName('');
+      setIsAddTokenFormOpen(false);
+      loadApiTokens();
+    } catch (err: any) {
+      setApiTokensError(err.message);
+    } finally {
+      setIsCreatingToken(false);
+    }
+  };
+
+  const dismissCreatedToken = () => {
+    setCreatedToken(null);
+    setTokenCopyState('idle');
+  };
+
+  const handleCopyCreatedToken = () => {
+    if (!createdToken) return;
+    navigator.clipboard?.writeText(createdToken.token)
+      .then(() => {
+        setTokenCopyState('copied');
+        setTimeout(() => setTokenCopyState('idle'), 2000);
+      })
+      .catch(() => {
+        setTokenCopyState('error');
+        setTimeout(() => setTokenCopyState('idle'), 2000);
+      });
+  };
+
+  const handleRevokeToken = async (id: number) => {
+    setRevokingTokenId(id);
+    try {
+      await revokeApiToken(id);
+      loadApiTokens();
+    } catch (err: any) {
+      setApiTokensError(err.message);
+    } finally {
+      setRevokingTokenId(null);
+    }
+  };
 
   const handleAddUser = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1492,22 +1569,68 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
           </Button>
         </header>
         <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="mb-4 inline-flex rounded-[var(--radius-control)] border border-[var(--border-hairline)] bg-[var(--surface-2)] p-1" role="tablist" aria-label="Gerenciar Acessos">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={accessTab === 'usuarios'}
+              onClick={() => setAccessTab('usuarios')}
+              className={cn(
+                'min-h-9 inline-flex items-center gap-1.5 rounded-[6px] px-3 text-sm font-semibold transition-colors',
+                accessTab === 'usuarios' ? 'bg-[var(--selection-subtle)] text-[var(--selection-ink)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              )}
+            >
+              <UserCheck size={15} /> Usuários
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={accessTab === 'apiKeys'}
+              onClick={() => setAccessTab('apiKeys')}
+              className={cn(
+                'min-h-9 inline-flex items-center gap-1.5 rounded-[6px] px-3 text-sm font-semibold transition-colors',
+                accessTab === 'apiKeys' ? 'bg-[var(--selection-subtle)] text-[var(--selection-ink)]' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              )}
+            >
+              <KeyRound size={15} /> API Keys
+            </button>
+          </div>
           <React.Suspense fallback={<PanelLoadingState />}>
-            <UsuariosTab
-              adminUsers={adminUsers}
-              isLoadingAdminUsers={isLoadingAdminUsers}
-              adminUsersError={adminUsersError}
-              isAddUserFormOpen={isAddUserFormOpen}
-              setIsAddUserFormOpen={setIsAddUserFormOpen}
-              newUserEmail={newUserEmail}
-              setNewUserEmail={setNewUserEmail}
-              newUserRole={newUserRole}
-              setNewUserRole={setNewUserRole}
-              isAddingUser={isAddingUser}
-              handleAddUser={handleAddUser}
-              removingUserEmail={removingUserEmail}
-              handleRemoveUser={handleRemoveUser}
-            />
+            {accessTab === 'usuarios' ? (
+              <UsuariosTab
+                adminUsers={adminUsers}
+                isLoadingAdminUsers={isLoadingAdminUsers}
+                adminUsersError={adminUsersError}
+                isAddUserFormOpen={isAddUserFormOpen}
+                setIsAddUserFormOpen={setIsAddUserFormOpen}
+                newUserEmail={newUserEmail}
+                setNewUserEmail={setNewUserEmail}
+                newUserRole={newUserRole}
+                setNewUserRole={setNewUserRole}
+                isAddingUser={isAddingUser}
+                handleAddUser={handleAddUser}
+                removingUserEmail={removingUserEmail}
+                handleRemoveUser={handleRemoveUser}
+              />
+            ) : (
+              <ApiKeysTab
+                apiTokens={apiTokens}
+                isLoadingApiTokens={isLoadingApiTokens}
+                apiTokensError={apiTokensError}
+                isAddTokenFormOpen={isAddTokenFormOpen}
+                setIsAddTokenFormOpen={setIsAddTokenFormOpen}
+                newTokenName={newTokenName}
+                setNewTokenName={setNewTokenName}
+                isCreatingToken={isCreatingToken}
+                handleCreateToken={handleCreateToken}
+                createdToken={createdToken}
+                dismissCreatedToken={dismissCreatedToken}
+                tokenCopyState={tokenCopyState}
+                handleCopyCreatedToken={handleCopyCreatedToken}
+                revokingTokenId={revokingTokenId}
+                handleRevokeToken={handleRevokeToken}
+              />
+            )}
           </React.Suspense>
         </main>
       </div>
