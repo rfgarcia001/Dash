@@ -1152,21 +1152,29 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
            if (thumb) creativeThumbs[adName] = thumb;
        }
     });
+    // Ad numbering restarts per funnel/product (every campaign has its own
+    // AD001, AD002...), so with 2+ funnels selected the SAME "[AD035]" name
+    // exists once per funnel with entirely different creatives behind it.
+    // The map key (and every match below) is scoped by funnel — a buyer
+    // from funnel A can never get attributed to funnel B's ad035, no
+    // matter how similar the ad names/ids look.
     metaData.forEach((row: any) => {
       const adName = (row['Nome do Anúncio'] || 'Desconhecido').toString().trim();
-      const key = adName.toUpperCase();
+      const funil = String(row['Funil'] || '').trim();
+      const key = `${funil}::${adName.toUpperCase()}`;
       const metaThumb = row['Thumb_Criativo'] || row['Thumb Criativo'] || row['thumb_criativo'] || row['Thumb'] || row['Thumbnail'] || '';
       if (!creativesMap[key]) {
-        let foundLink = creativeLinks[key] || '';
-        let foundThumb = creativeThumbs[key] || metaThumb || '';
+        let foundLink = creativeLinks[adName.toUpperCase()] || '';
+        let foundThumb = creativeThumbs[adName.toUpperCase()] || metaThumb || '';
         if (!foundLink || !foundThumb) {
-          const matchedLinkKey = Object.keys(creativeLinks).find(k => isFuzzyMatch(k, key));
+          const matchedLinkKey = Object.keys(creativeLinks).find(k => isFuzzyMatch(k, adName.toUpperCase()));
           if (matchedLinkKey && !foundLink) foundLink = creativeLinks[matchedLinkKey];
-          const matchedThumbKey = Object.keys(creativeThumbs).find(k => isFuzzyMatch(k, key));
+          const matchedThumbKey = Object.keys(creativeThumbs).find(k => isFuzzyMatch(k, adName.toUpperCase()));
           if (matchedThumbKey && !foundThumb) foundThumb = creativeThumbs[matchedThumbKey];
         }
         creativesMap[key] = {
            name: decodeHtmlEntities(adName) || adName,
+           funil,
            link: foundLink,
            thumb: foundThumb,
            Thumb_Criativo: foundThumb,
@@ -1176,8 +1184,8 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
            vendas: 0,
            faturamento: 0,
         };
-      } else if (!creativesMap[key].thumb && (creativeThumbs[key] || metaThumb)) {
-        const t = creativeThumbs[key] || metaThumb;
+      } else if (!creativesMap[key].thumb && (creativeThumbs[adName.toUpperCase()] || metaThumb)) {
+        const t = creativeThumbs[adName.toUpperCase()] || metaThumb;
         creativesMap[key].thumb = t;
         creativesMap[key].Thumb_Criativo = t;
       }
@@ -1185,18 +1193,21 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
       creativesMap[key].impressoes += parseValue(row['Impressões']);
       creativesMap[key].cliques += parseValue(row['Cliques no Link']);
     });
-    
+
     buyersByDate.filter(isTrafficSale).forEach((b: any) => {
       const termUtm = (b['utm_term'] || '').toString().trim();
       const contUtm = (b['utm_content'] || '').toString().trim();
       const medUtm = (b['utm_medium'] || '').toString().trim();
       const valStr = b['Valor'] || b['Valor Bruto'] || b['Preço'] || b['Faturamento'] || b['Valor Pago'] || '0';
       const valNum = parseValue(valStr);
-      const creativeKeys = Object.keys(creativesMap);
+      const buyerFunil = String(b['Funil'] || '').trim();
+      // Only consider creatives from the SAME funnel as this sale — the ad
+      // name/id alone is not a unique key across funnels (see comment above).
+      const creativeKeys = Object.keys(creativesMap).filter(k => creativesMap[k].funil === buyerFunil);
       let matchedCreativeKey = creativeKeys.find(k => (
-        isAdMatch(k, contUtm) ||
-        isAdMatch(k, termUtm) ||
-        isAdMatch(k, medUtm)
+        isAdMatch(creativesMap[k].name, contUtm) ||
+        isAdMatch(creativesMap[k].name, termUtm) ||
+        isAdMatch(creativesMap[k].name, medUtm)
       ));
       if (!matchedCreativeKey && b.utm_content && b.utm_content.startsWith('{')) {
         try {
