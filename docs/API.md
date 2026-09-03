@@ -28,11 +28,19 @@ X-Ingest-Token: <token>
 
 Esse token é **diferente** do usuário/senha do dashboard — aquele é
 credencial de humano navegando no browser (Basic Auth), este é credencial
-de automação. Configurado no servidor via `INGEST_API_TOKEN`. Guarde como
-credencial no N8N (Header Auth), nunca em texto puro no workflow.
+de automação. Guarde como credencial no N8N (Header Auth), nunca em texto
+puro no workflow.
 
-Sem o header certo: `401`. Sem `INGEST_API_TOKEN` configurada no servidor
-(ingestão desligada): `503`.
+Duas formas de gerar esse token, em paralelo:
+
+- **API Key pela tela do dashboard** (recomendado): "Gerenciar Acessos" →
+  aba "API Keys" → "Criar API Key". Só aparece uma vez, na criação; revoga
+  individualmente sem precisar reiniciar o servidor.
+- **`INGEST_API_TOKEN`** (env var, legado): token único fixo configurado
+  no servidor, acesso de emergência/fallback.
+
+Sem o header certo: `401`. Sem nenhum token configurado (nem
+`INGEST_API_TOKEN` nem uma API Key ativa) e sem `DATABASE_URL`: `503`.
 
 ## `funnelId`
 

@@ -498,7 +498,11 @@
           <button class="copy-btn" data-copy="X-Ingest-Token: &lt;token&gt;">Copiar</button>
           <pre><span class="jk">X-Ingest-Token</span>: &lt;token&gt;</pre>
         </div>
-        <p style="color:var(--text-dim); font-size:14px;">Diferente do usuário/senha do dashboard — aquele é credencial de humano navegando no browser, este é credencial de automação (configurado via <code>INGEST_API_TOKEN</code> no servidor). Guarde como credencial no N8N (Header Auth), nunca em texto puro no workflow.</p>
+        <p style="color:var(--text-dim); font-size:14px;">Diferente do usuário/senha do dashboard — aquele é credencial de humano navegando no browser, este é credencial de automação. Guarde como credencial no N8N (Header Auth), nunca em texto puro no workflow.</p>
+        <div class="callout">
+          <span class="callout-icon">🔑</span>
+          <span><strong>Duas formas de gerar o token</strong>, em paralelo: crie uma API Key pela tela do dashboard ("Gerenciar Acessos" → aba "API Keys" — recomendado, revoga individualmente) ou use o <code>INGEST_API_TOKEN</code> fixo do servidor (env var, acesso de emergência/legado).</span>
+        </div>
         <div class="status-row">
           <div class="status-chip err-4"><span class="code">401</span><span class="desc">token inválido ou ausente</span></div>
           <div class="status-chip err-5"><span class="code">503</span><span class="desc">ingestão desligada no servidor</span></div>
