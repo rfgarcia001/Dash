@@ -708,9 +708,20 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
       if (cMeta === cUtm) return true;
       const metaId = extractAdId(metaAdName);
       const utmId = extractAdId(buyerUtm);
-      if (metaId !== null && utmId !== null) {
-        return metaId === utmId;
+      // Whenever EITHER side's name encodes a numeric ad ID (e.g. "[AD021]"
+      // — most ads in this account do), an exact ID match is the only
+      // signal specific enough to tell apart near-identical sibling ads
+      // that share the same family name and differ only by number. Falling
+      // through to substring matching whenever just one side lacked an ID
+      // let a single generic, ID-less UTM (shared by a whole ad set) match
+      // *every* sibling ad and pile all of its sales onto whichever one
+      // happened to be first in iteration order — producing >100%
+      // "conversion" rates on that one ad while starving the others.
+      if (metaId !== null || utmId !== null) {
+        return metaId !== null && utmId !== null && metaId === utmId;
       }
+      // Neither name carries an extractable ID at all — substring matching
+      // is the only signal left, for genuinely ID-less ad names only.
       return cMeta.length > 6 && cUtm.length > 6 && (cMeta.includes(cUtm) || cUtm.includes(cMeta));
     };
     const isSetMatch = (metaSetName: string, buyerMed: string, buyerCont: string, buyerTerm: string) => {
