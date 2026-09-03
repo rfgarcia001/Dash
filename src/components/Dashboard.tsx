@@ -149,8 +149,6 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
   const [comparePrevious, setComparePrevious] = useState(true);
   const [showMovingAverage, setShowMovingAverage] = useState(false);
   const [customDates, setCustomDates] = useState({ start: '', end: '' });
-  const [optimizationHistory, setOptimizationHistory] = useState<any[]>([]);
-  const [previewAlertId, setPreviewAlertId] = useState<string | null>(null);
   const [pageSort, togglePageSort] = useSortState({column: 'salesMeta', direction: 'desc'});
   const [creativeSort, toggleCreativeSort] = useSortState({column: 'investimento', direction: 'desc'});
   const [campaignSort, toggleCampaignSort] = useSortState({column: 'investimento', direction: 'desc'});
@@ -515,7 +513,14 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
   useEffect(() => {
     if (!hasPaidLaunchSelected) setIncludeProductRevenue(false);
   }, [hasPaidLaunchSelected]);
-  const dateOptions = ['HOJE', 'ONTEM', 'ONTEM+HOJE', '3D', '7D', '14D', '30D', 'MES_ATUAL', 'MÁXIMO'];
+  // Grouped instead of one flat 9-option list — each group stays within the
+  // ~4-item working-memory guideline, so picking a period is a two-step
+  // narrowing (which group, then which option) instead of one long scan.
+  const dateOptionGroups: { label: string; options: string[] }[] = [
+    { label: 'Dias específicos', options: ['HOJE', 'ONTEM', 'ONTEM+HOJE'] },
+    { label: 'Janelas móveis', options: ['3D', '7D', '14D', '30D'] },
+    { label: 'Outros', options: ['MES_ATUAL', 'MÁXIMO'] },
+  ];
   const metricsData = useMemo(() => {
     const defaultMetrics = {
       geral: {
@@ -1359,76 +1364,6 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
       fgpResume
     };
   }, [data, dateRange, comparePrevious, includeProductRevenue]);
-  const alertsData = useMemo(() => {
-    const alerts: any[] = [];
-    if (!metricsData.campaigns) return alerts;
-    metricsData.campaigns.forEach((campaign: any) => {
-      const campCPA = campaign.cpa;
-      if (campCPA > 0 && campaign.sets) {
-        campaign.sets.forEach((set: any) => {
-          if (set.cpa > campCPA && set.comprasTrafego > 0) {
-            let action = '';
-            const severity = set.cpa > campCPA * 1.5 ? 'high' : 'medium';
-            if (set.cpa > campCPA * 1.5) {
-              action = 'Pausar';
-            } else if (set.cpa > campCPA * 1.25) {
-              action = 'Reduzir Orçamento';
-            } else {
-              action = 'Revisar';
-            }
-            alerts.push({
-              id: `${campaign.name}-${set.name}-cpa`,
-              type: 'cpa_alto',
-              severity: severity,
-              action: action,
-              campaignName: campaign.name,
-              setName: set.name,
-              setCpa: set.cpa,
-              campCpa: campCPA,
-              setSpend: set.investimento,
-              setPurchases: set.comprasTrafego
-            });
-          } else if (set.comprasTrafego === 0 && set.investimento > campCPA && campCPA > 0) {
-            alerts.push({
-              id: `${campaign.name}-${set.name}-gasto`,
-              type: 'gasto_sem_vendas',
-              severity: set.investimento > campCPA * 1.5 ? 'high' : 'medium',
-              action: 'Pausar',
-              campaignName: campaign.name,
-              setName: set.name,
-              setCpa: 0,
-              campCpa: campCPA,
-              setSpend: set.investimento,
-              setPurchases: 0
-            });
-          }
-        });
-      }
-    });
-    alerts.sort((a,b) => b.setSpend - a.setSpend);
-    return alerts;
-  }, [metricsData.campaigns]);
-  const activeAlerts = useMemo(() => {
-    return alertsData.filter(a => !optimizationHistory.find(h => h.id === a.id));
-  }, [alertsData, optimizationHistory]);
-  const handleAlertAction = (alert: any, status: 'applied' | 'declined') => {
-    const mockResults = [
-      "Redução de 15% no CPA da campanha",
-      "Economia de R$ 120,00 reais em gastos ineficientes",
-      "Aumento de 5% no ROAS geral",
-      "Orçamento otimizado para conjuntos de melhor performance",
-      "Sem impacto significativo até o momento",
-      "Melhora de 10% na taxa de conversão",
-    ];
-    const randomResult = mockResults[Math.floor(Math.random() * mockResults.length)];
-    setOptimizationHistory(prev => [{
-      id: alert.id,
-      alert: alert,
-      status: status,
-      date: new Date().toLocaleDateString('pt-BR'),
-      mockedResult: status === 'applied' ? randomResult : 'Ação recusada, aguardando nova análise',
-    }, ...prev]);
-  };
   const { geral } = metricsData;
   const toggleCampaign = (campName: string) => {
     setExpandedCampaigns(prev => ({ ...prev, [campName]: !prev[campName] }));
@@ -1551,6 +1486,17 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
   }, [data]);
   const isPermissionError = Boolean(fetchError && /privada|permissão|compartilhar|acesso/i.test(fetchError));
   const hasInvalidCustomDateRange = Boolean(customDates.start && customDates.end && customDates.start > customDates.end);
+  // Every non-MÁXIMO preset (and a custom range ending today or later) folds
+  // today's still-accumulating totals into "current period", while the
+  // previous-period comparison always uses whole, already-closed days — so
+  // before today ends, the comparison is structurally guaranteed to look
+  // like a drop even with normal performance. Surfaced as a caveat rather
+  // than fixed by excluding today, since excluding it would make "Hoje"
+  // itself meaningless and desync the KPI cards from the daily chart below.
+  const todayIsoDate = new Date().toISOString().slice(0, 10);
+  const comparisonIncludesPartialToday = comparePrevious
+    && dateRange !== 'MÁXIMO'
+    && (!dateRange.startsWith('CUSTOM:') || dateRange.split(':')[1]?.split('|')[1] >= todayIsoDate);
 
   if (view === 'usuarios') {
     return (
@@ -1845,30 +1791,37 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                     <X size={14} />
                   </button>
                 </div>
-                {/* Preset Options Grid */}
-                <div className="grid grid-cols-2 gap-1.5 mb-3">
-                  {dateOptions.map(opt => {
-                    const isSelected = dateRange === opt;
-                    return (
-                      <button
-                        key={opt}
-                        onClick={() => {
-                          setDateRange(opt);
-                          setCustomDates({ start: '', end: '' });
-                          setIsDateMenuOpen(false);
-                        }}
-                        className={cn(
-                          "px-3 py-2 text-xs font-bold rounded-[var(--radius-control)] transition-all text-left flex items-center justify-between border",
-                          isSelected
-                            ? "bg-[var(--selection-subtle)] border-[var(--selection-ink)]/50 text-[var(--selection-ink)]"
-                            : "bg-[var(--surface-3)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-4)] border-[var(--border-hairline)]"
-                        )}
-                      >
-                        <span>{getLabelForDateRange(opt, { start: '', end: '' })}</span>
-                        {isSelected && <Check size={14} strokeWidth={3} className="shrink-0" />}
-                      </button>
-                    );
-                  })}
+                {/* Preset Options, grouped */}
+                <div className="mb-3 space-y-3">
+                  {dateOptionGroups.map((group) => (
+                    <div key={group.label}>
+                      <span className="text-[length:var(--type-caption)] font-mono font-bold text-[var(--text-subtle)] uppercase tracking-wider block mb-1.5">{group.label}</span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {group.options.map(opt => {
+                          const isSelected = dateRange === opt;
+                          return (
+                            <button
+                              key={opt}
+                              onClick={() => {
+                                setDateRange(opt);
+                                setCustomDates({ start: '', end: '' });
+                                setIsDateMenuOpen(false);
+                              }}
+                              className={cn(
+                                "px-3 py-2 text-xs font-bold rounded-[var(--radius-control)] transition-all text-left flex items-center justify-between border",
+                                isSelected
+                                  ? "bg-[var(--selection-subtle)] border-[var(--selection-ink)]/50 text-[var(--selection-ink)]"
+                                  : "bg-[var(--surface-3)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-4)] border-[var(--border-hairline)]"
+                              )}
+                            >
+                              <span>{getLabelForDateRange(opt, { start: '', end: '' })}</span>
+                              {isSelected && <Check size={14} strokeWidth={3} className="shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
                 {/* Custom Date Range Picker */}
                 <div className="pt-3 border-t border-[var(--chart-grid)] space-y-2 mb-3">
@@ -2170,6 +2123,12 @@ export default function Dashboard({ authUser, isAdmin = false, onLogout }: Dashb
                           <History size={13} className="text-[var(--selection-ink)]" /> Comparar período
                         </span>
                       </button>
+                      {comparisonIncludesPartialToday && (
+                        <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--status-warning)]" role="note">
+                          <AlertTriangle size={13} />
+                          Hoje ainda não terminou — quedas nesse comparativo podem só refletir isso.
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-5">
